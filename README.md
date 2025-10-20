@@ -1,49 +1,53 @@
 # 🌍 Globe Radio
 
-一个基于 React 的 3D 地球收音机应用，让你通过旋转地球来发现世界各地的电台。
+## 🌐 Languages
+
+- [English](README.md) (current)
+- [中文](README-zh.md)
+
+A 3D globe radio application that lets you discover radio stations from around the world by rotating the Earth.
 
 ![Globe Radio Preview](./preview.png)
 
-## ✨ 功能特性
+## ✨ Features
 
-- 📍 **智能定位系统** - 中心准星自动定位，旋转停止后搜索附近电台
-- 📻 **全球电台数据库** - 集成 Radio Browser API，访问全球数万个电台
-- 🎵 **流媒体播放** - 支持多种音频格式的在线播放
-- 🎨 **复古收音机界面** - 精美的复古风格控制面板
-- ⚡ **智能切换** - 自动根据电台数量显示上/下一个按钮
+- 📍 **Smart Positioning System** - Automatic center crosshair positioning, searches for nearby stations after rotation stops
+- 📻 **Global Radio Database** - Integrated Radio Browser API with access to tens of thousands of stations worldwide
+- 🎵 **Streaming Playback** - Supports online playback of multiple audio formats
+- 🎨 **Retro Radio Interface** - Beautiful retro-style control panel
+- ⚡ **Smart Switching** - Automatically displays previous/next buttons based on station count
 
-## 🚀 快速开始
+## 🚀 Quick Start
 
-### 安装依赖
+### Install Dependencies
 
 ```bash
 npm install
 ```
 
-### 启动开发服务器
+### Start Development Server
 
 ```bash
 npm run dev
 ```
 
-应用将在 `http://localhost:5174` 启动（如果端口被占用会自动选择其他端口）
+The application will start at `http://localhost:5174` (will automatically select another port if this one is occupied)
 
-## 📖 使用指南
+## 📖 User Guide
 
-1. **旋转地球** - 使用鼠标拖拽旋转 3D 地球
-2. **缩放** - 使用鼠标滚轮缩放地球视图
-4. **播放电台** - 点击播放按钮开始收听
+1. **Rotate the Globe** - Use mouse drag to rotate the 3D Earth
+2. **Zoom** - Use mouse wheel to zoom the Earth view
+3. **Play Radio** - Click the play button to start listening
 
-
-## 🌟 未来改进
-1. 添加电台切换模拟频道搜索白噪声
-2. 增加随机电台播放
-3. 支持显示电台到地图上
+## 🌟 Future Improvements
+1. Add radio switching simulation with channel search white noise
+2. Add random radio station playback
+3. Support displaying radio stations on the map
 
 ## 📄 License
 
 MIT
 
-## 🙏 致谢
+## 🙏 Acknowledgments
 
-- [Radio Browser](https://www.radio-browser.info/) - 提供免费的电台 API
+- [Radio Browser](https://www.radio-browser.info/) - Provides free radio API
