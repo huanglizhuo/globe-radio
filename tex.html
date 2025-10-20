@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Radio Tuning Demo (Tone.js)</title>
+<script src="https://unpkg.com/tone@14.7.77/build/Tone.js"></script>
+<style>
+  body {
+    background: radial-gradient(#111, #000);
+    color: #eee;
+    font-family: monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+  }
+  .knob {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    border: 6px solid #666;
+    background: radial-gradient(circle at 30% 30%, #999, #333);
+    box-shadow: 0 0 10px #000 inset;
+    cursor: pointer;
+    transform: rotate(0deg);
+    transition: transform 0.2s ease-out;
+  }
+  button {
+    margin-top: 20px;
+    background: #333;
+    color: #fff;
+    border: 1px solid #666;
+    padding: 10px 16px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <h2>🎙️ Retro Radio Tuning</h2>
+  <div class="knob" id="knob"></div>
+  <button id="start">Start / Stop</button>
+
+<script>
+let isPlaying = false;
+let noise, noiseGain, osc, oscGain, player;
+
+async function setupAudio() {
+  await Tone.start();
+
+  // 背景噪声
+  noise = new Tone.Noise("white").start();
+  noiseGain = new Tone.Gain(0.4).toDestination();
+  noise.connect(noiseGain);
+
+  // 振荡器 (扫频)
+  osc = new Tone.Oscillator({ type: "sawtooth", frequency: 200 }).start();
+  oscGain = new Tone.Gain(0.08).toDestination();
+  osc.connect(oscGain);
+
+  // 模拟“找到频道”时播放的音频
+  player = new Tone.Player({
+    url: "https://www2.cs.uic.edu/~i101/SoundFiles/BabyElephantWalk60.wav", // 可换成任意音乐/电台音频
+    loop: true,
+    volume: -10,
+  }).toDestination();
+}
+
+async function playRadioTuning() {
+  if (!noise) await setupAudio();
+
+  if (isPlaying) {
+    noise.stop();
+    osc.stop();
+    player.stop();
+    isPlaying = false;
+    return;
+  }
+
+  isPlaying = true;
+  noise.start();
+  osc.start();
+
+  // 扫频 + 渐变
+  const now = Tone.now();
+  const sweepTime = 3;
+  osc.frequency.cancelScheduledValues(now);
+  osc.frequency.setValueAtTime(200, now);
+  osc.frequency.exponentialRampToValueAtTime(8000, now + sweepTime);
+
+  // 噪声从强到弱
+  noiseGain.gain.cancelScheduledValues(now);
+  noiseGain.gain.setValueAtTime(0.4, now);
+  noiseGain.gain.exponentialRampToValueAtTime(0.02, now + sweepTime);
+
+  // 模拟找到台：播放音频并逐渐盖过噪声
+  setTimeout(() => {
+    player.start();
+    player.volume.rampTo(0, 1);
+  }, sweepTime * 1000);
+}
+
+document.getElementById("start").onclick = playRadioTuning;
+
+// 旋钮交互
+const knob = document.getElementById("knob");
+let angle = 0;
+knob.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  angle += e.deltaY > 0 ? 15 : -15;
+  knob.style.transform = `rotate(${angle}deg)`;
+
+  // 根据旋钮角度调整扫频方向
+  const freq = Math.abs((angle % 360) / 360);
+  osc.frequency.rampTo(200 + 8000 * freq, 0.5);
+  noiseGain.gain.rampTo(0.1 + 0.3 * (1 - freq), 0.3);
+});
+</script>
+</body>
+</html>
+
