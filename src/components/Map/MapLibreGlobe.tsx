@@ -104,7 +104,11 @@ export function MapLibreGlobe({ onLocationChange }: MapLibreGlobeProps) {
   const isUserInteractionRef = useRef(false);
 
   // Store random location in a ref to use across callbacks
-  const initialLocationRef = useRef(getRandomLocation());
+  // Use lazy initialization to only call getRandomLocation() once
+  const initialLocationRef = useRef<[number, number] | null>(null);
+  if (initialLocationRef.current === null) {
+    initialLocationRef.current = getRandomLocation();
+  }
 
   useEffect(() => {
     if (!mapContainer.current || map.current) return; // Initialize only once
@@ -130,7 +134,7 @@ export function MapLibreGlobe({ onLocationChange }: MapLibreGlobeProps) {
     const optimalZoom = Math.max(1, Math.min(4, zoomLevel));
 
     // Get random starting location
-    const randomLocation = initialLocationRef.current;
+    const randomLocation = initialLocationRef.current!; // Safe: initialized above
     console.log(`🌍 Starting location: [${randomLocation[0].toFixed(2)}, ${randomLocation[1].toFixed(2)}]`);
     console.log(`📐 Screen size: ${mapContainer.current.clientWidth}x${mapContainer.current.clientHeight}, min: ${minDimension}px`);
     console.log(`🔍 Calculated zoom level: ${optimalZoom.toFixed(2)} (target: ${targetEarthSize.toFixed(0)}px)`);
