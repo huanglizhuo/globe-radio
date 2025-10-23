@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { MapLibreGlobe, type MapLibreGlobeHandle } from './components/Map/MapLibreGlobe';
 import { RetroRadioUI } from './components/Radio/RetroRadioUI';
 import { FloatingInfo } from './components/UI/FloatingInfo';
@@ -8,6 +8,7 @@ import type { Coordinates } from './types';
 
 function App() {
   const mapRef = useRef<MapLibreGlobeHandle>(null);
+  const [tuningEffectEnabled, setTuningEffectEnabled] = useState(true); // Default: enabled
   const { stations, loading: stationsLoading, searchStations } = useRadioStations();
   const {
     currentStation,
@@ -21,7 +22,7 @@ function App() {
     next,
     previous,
     hasMultipleStations,
-  } = useAudioPlayer(stations);
+  } = useAudioPlayer(stations, tuningEffectEnabled);
 
   // Handle map location change
   const handleLocationChange = useCallback((lat: number, lon: number) => {
@@ -29,6 +30,15 @@ function App() {
     console.log(`Location changed to: ${lat.toFixed(2)}°, ${lon.toFixed(2)}°`);
     searchStations(coordinates);
   }, [searchStations]);
+
+  // Handle tuning effect toggle
+  const handleToggleTuningEffect = useCallback(() => {
+    setTuningEffectEnabled(prev => {
+      const newValue = !prev;
+      console.log(`🎵 Tuning effect ${newValue ? 'enabled' : 'disabled'}`);
+      return newValue;
+    });
+  }, []);
 
   // Handle keyboard events (spacebar to toggle play/pause, arrows for navigation)
   useEffect(() => {
@@ -85,10 +95,12 @@ function App() {
         error={playerError}
         hasMultipleStations={hasMultipleStations}
         volume={volume}
+        tuningEffectEnabled={tuningEffectEnabled}
         onPlayPause={togglePlayPause}
         onPrevious={previous}
         onNext={next}
         onVolumeChange={setVolume}
+        onToggleTuningEffect={handleToggleTuningEffect}
       />
 
       {/* Loading indicator */}

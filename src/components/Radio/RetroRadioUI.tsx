@@ -9,10 +9,12 @@ interface RetroRadioUIProps {
   error: string | null;
   hasMultipleStations: boolean;
   volume: number;
+  tuningEffectEnabled: boolean;
   onPlayPause: () => void;
   onPrevious: () => void;
   onNext: () => void;
   onVolumeChange: (volume: number) => void;
+  onToggleTuningEffect: () => void;
 }
 
 export function RetroRadioUI({
@@ -22,10 +24,12 @@ export function RetroRadioUI({
   error,
   hasMultipleStations,
   volume,
+  tuningEffectEnabled,
   onPlayPause,
   onPrevious,
   onNext,
   onVolumeChange,
+  onToggleTuningEffect,
 }: RetroRadioUIProps) {
   return (
     <div className="absolute top-4 right-4 z-10 w-80 retro-radio">
@@ -95,23 +99,12 @@ export function RetroRadioUI({
 
           {/* Frequency display */}
           {currentStation && (
-            <div className="mt-2 text-center">
+            <div className="mt-2 mb-2 text-center">
               <div className="inline-block bg-green-900/50 px-3 py-1 rounded border border-green-700">
                 <span className="text-green-400 font-mono text-xs">
                   FM {Math.random() * 100 + 80 | 0}.{Math.random() * 9 | 0} MHz
                 </span>
               </div>
-              <div className="mt-1">
-                <span className="text-amber-500 font-mono text-xs">
-                  {currentStation.codec} • {currentStation.bitrate || 0} kbps
-                </span>
-              </div>
-            </div>
-          )}
-
-          {!currentStation && !loading && (
-            <div className="text-center py-2">
-              <span className="text-amber-600 text-xs">📻 No Signal</span>
             </div>
           )}
         </div>
@@ -129,6 +122,27 @@ export function RetroRadioUI({
             onVolumeChange={onVolumeChange}
             compact={true}
           />
+        </div>
+
+        {/* Tuning Effect Toggle */}
+        <div className="mt-2 bg-gradient-to-b from-amber-950 to-black rounded-lg p-2 border border-amber-900">
+          <button
+            onClick={onToggleTuningEffect}
+            className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-amber-900/30 transition-colors group"
+            title={tuningEffectEnabled ? 'Disable tuning sound effect' : 'Enable tuning sound effect'}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-amber-200 text-xs font-medium">Tuning Effect</span>
+              <span className="text-amber-500/60 text-[10px]">
+                {tuningEffectEnabled ? '(ON)' : '(OFF)'}
+              </span>
+            </div>
+            <div className={`relative w-10 h-5 rounded-full transition-colors ${tuningEffectEnabled ? 'bg-green-600' : 'bg-gray-600'
+              }`}>
+              <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-md transition-transform ${tuningEffectEnabled ? 'translate-x-5' : 'translate-x-0'
+                }`} />
+            </div>
+          </button>
         </div>
       </div>
 

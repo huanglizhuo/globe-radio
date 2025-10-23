@@ -11,9 +11,9 @@ export function StationInfo({ station, loading, compact = false }: StationInfoPr
   // If station exists, keep showing it even during loading (play button will show loading)
   if (loading && !station) {
     return (
-      <div className={`text-center ${compact ? 'py-2' : 'py-4'}`}>
+      <div className={`text-center ${compact ? 'py-1' : 'py-4'}`}>
         <div className="animate-pulse">
-          <div className={`h-3 bg-amber-700 rounded w-3/4 mx-auto mb-1 ${compact ? '' : 'mb-2'}`} />
+          <div className={`${compact ? 'h-2' : 'h-3'} bg-amber-700 rounded w-3/4 mx-auto ${compact ? '' : 'mb-2'}`} />
           {!compact && <div className="h-2 bg-amber-700 rounded w-1/2 mx-auto" />}
         </div>
       </div>
@@ -22,7 +22,7 @@ export function StationInfo({ station, loading, compact = false }: StationInfoPr
 
   if (!station) {
     return (
-      <div className={`text-center ${compact ? 'py-2' : 'py-4'} ${compact ? 'text-amber-600' : 'text-gray-400'}`}>
+      <div className={`text-center ${compact ? 'py-1' : 'py-4'} ${compact ? 'text-amber-600' : 'text-gray-400'}`}>
         <p className={compact ? 'text-xs' : ''}>{compact ? '📻 No Signal' : 'No station available'}</p>
         {!compact && <p className="text-xs mt-1">Rotate the globe to find stations</p>}
       </div>
@@ -31,17 +31,14 @@ export function StationInfo({ station, loading, compact = false }: StationInfoPr
 
   if (compact) {
     return (
-      <div className="text-center py-2 px-2">
-        {/* Station name - compact */}
-        <h3 className="text-sm font-bold text-amber-100 truncate leading-tight">{station.name}</h3>
-
-        {/* Country flag */}
-        {station.country && (
-          <div className="text-xs text-amber-600 mt-1">
-            <span className="text-xs mr-1">{getFlagEmoji(station.countrycode)}</span>
-            {station.country}
-          </div>
-        )}
+      <div className="text-center py-1 px-2">
+        {/* Station name with country flag - compact */}
+        <h3 className="text-xs font-bold text-amber-100 truncate leading-none flex items-center justify-center gap-1">
+          {station.country && (
+            <span className="text-sm flex-shrink-0">{getFlagEmoji(station.countrycode)}</span>
+          )}
+          <span className="truncate">{station.name}</span>
+        </h3>
       </div>
     );
   }

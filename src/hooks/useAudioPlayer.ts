@@ -2,8 +2,9 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import Hls from 'hls.js';
 import type { RadioStation } from '../types';
 import { RadioBrowserAPI } from '../services/radioBrowserAPI';
+import { useRadioTuningEffect } from './useRadioTuningEffect';
 
-export function useAudioPlayer(stations: RadioStation[]) {
+export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: boolean = true) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -18,8 +19,39 @@ export function useAudioPlayer(stations: RadioStation[]) {
   const prevStationRef = useRef<RadioStation | null>(null);
   const validationCacheRef = useRef<Map<string, boolean>>(new Map()); // Cache validation results
   const isValidatingRef = useRef(false); // Prevent concurrent validations
+  const isTuningRef = useRef(false); // Track if tuning effect is playing
+  const autoSkipPendingRef = useRef(false); // Track if auto-skip is already pending
 
   const currentStation = stations[currentIndex] || null;
+
+  // Radio tuning effect
+  const { startTuningEffect, stopTuningEffect, isTuning } = useRadioTuningEffect();
+
+  // Fade in audio volume
+  const fadeInVolume = useCallback((targetVolume: number, duration: number = 300) => {
+    if (!audioRef.current) return;
+
+    const audio = audioRef.current;
+    const steps = 20; // Number of volume steps
+    const stepDuration = duration / steps;
+    const volumeIncrement = targetVolume / steps;
+
+    audio.volume = 0; // Start from silent
+    let currentStep = 0;
+
+    const fadeInterval = setInterval(() => {
+      currentStep++;
+      if (currentStep >= steps || !audioRef.current) {
+        clearInterval(fadeInterval);
+        if (audioRef.current) {
+          audioRef.current.volume = targetVolume;
+        }
+        return;
+      }
+
+      audioRef.current.volume = Math.min(volumeIncrement * currentStep, targetVolume);
+    }, stepDuration);
+  }, []);
 
   // Initialize audio element
   useEffect(() => {
@@ -57,7 +89,7 @@ export function useAudioPlayer(stations: RadioStation[]) {
       console.error('Audio error:', errorMessage, error);
 
       if (isCorsError) {
-        console.log('Potential CORS error - auto-skipping to next station...');
+        console.log(`⚠️ Stream error for "${currentStation?.name}" - triggering auto-skip...`);
         // Don't show error in UI since validation already filtered bad streams
         // Just auto-skip to next station
         shouldAutoSkipRef.current = true;
@@ -76,14 +108,29 @@ export function useAudioPlayer(stations: RadioStation[]) {
       setError(null);
     };
 
-    audio.oncanplay = () => {
+    audio.oncanplay = async () => {
       setLoading(false);
+
+      // Stop tuning effect when station is ready to play (only if enabled)
+      if (tuningEffectEnabled && isTuning()) {
+        console.log('📻 Station ready, stopping tuning effect...');
+        await stopTuningEffect(0.3);
+
+        // Fade in the station audio
+        console.log('🎵 Fading in station audio...');
+        fadeInVolume(volume, 300);
+      } else if (!tuningEffectEnabled) {
+        // If tuning effect is disabled, just set normal volume
+        audio.volume = volume;
+      }
     };
 
     audio.onplay = () => {
       setIsPlaying(true);
       setLoading(false);
       setError(null);
+      // Reset auto-skip counter on successful play
+      maxAutoSkipAttemptsRef.current = 0;
     };
 
     audio.onpause = () => {
@@ -120,7 +167,7 @@ export function useAudioPlayer(stations: RadioStation[]) {
         audioRef.current = null;
       }
     };
-  }, []);
+  }, [isTuning, stopTuningEffect, fadeInVolume, volume]);
 
   // Update volume
   useEffect(() => {
@@ -314,6 +361,17 @@ export function useAudioPlayer(stations: RadioStation[]) {
       audio.pause();
       audio.currentTime = 0;
 
+      // Start tuning effect ONLY if enabled and not already playing
+      // (next/previous already start it immediately)
+      if (tuningEffectEnabled && !isTuning()) {
+        console.log(`📻 Starting tuning effect for "${currentStation.name}"...`);
+        startTuningEffect({ volume: 0.4, preset: 'random' }); // Random preset for variety
+      } else if (tuningEffectEnabled && isTuning()) {
+        console.log(`📻 Tuning effect already playing, continuing for "${currentStation.name}"...`);
+      } else if (!tuningEffectEnabled) {
+        console.log(`🔇 Tuning effect disabled for "${currentStation.name}"`);
+      }
+
       // Register click with API (fire and forget)
       RadioBrowserAPI.registerClick(currentStation.stationuuid);
 
@@ -499,6 +557,15 @@ export function useAudioPlayer(stations: RadioStation[]) {
         await new Promise(resolve => setTimeout(resolve, 100));
         await audio.play();
       }
+
+      // Set initial volume based on tuning effect status
+      if (tuningEffectEnabled && isTuning()) {
+        // Will fade in when canplay event fires
+        audio.volume = 0;
+      } else {
+        // If tuning effect is disabled, set to target volume immediately
+        audio.volume = volume;
+      }
     } catch (err: any) {
       // Ignore AbortError caused by rapid station switching
       if (err.name === 'AbortError') {
@@ -519,7 +586,7 @@ export function useAudioPlayer(stations: RadioStation[]) {
       setIsPlaying(false);
       setLoading(false);
     }
-  }, [currentStation]);
+  }, [currentStation, volume, isTuning, startTuningEffect, tuningEffectEnabled]);
 
   // Pause station
   const pause = useCallback(() => {
@@ -541,43 +608,99 @@ export function useAudioPlayer(stations: RadioStation[]) {
   const next = useCallback(async () => {
     if (stations.length === 0) return;
 
-    // Clear any previous error when switching stations
-    setError(null);
-
-    // Pause current playback
-    pause();
-
-    
-    const nextIndex = (currentIndex + 1) % stations.length;
-    const validIndex = await findValidStation(nextIndex);
-
-    if (validIndex !== null) {
-      setCurrentIndex(validIndex);
-    } else {
-      setError('No playable stations found');
+    // Prevent concurrent station changes
+    if (isTuningRef.current) {
+      console.log('⏸️ Station change already in progress, skipping');
+      return;
     }
-  }, [currentIndex, stations.length, pause, findValidStation]);
+
+    isTuningRef.current = true;
+
+    try {
+      // Clear any previous error when switching stations
+      setError(null);
+
+      // Pause current playback
+      pause();
+
+      // 🎵 IMMEDIATELY start tuning effect (before validation) if enabled
+      if (tuningEffectEnabled) {
+        console.log('📻 Immediately starting tuning effect...');
+        startTuningEffect({ volume: 0.4, preset: 'random' }); // Random preset for variety
+      }
+      setLoading(true);
+
+      // Find next valid station
+      const nextIndex = (currentIndex + 1) % stations.length;
+      const validIndex = await findValidStation(nextIndex);
+
+      if (validIndex !== null) {
+        setCurrentIndex(validIndex);
+        // Station will auto-play due to useEffect
+        // Tuning effect will stop when station is ready (in oncanplay)
+      } else {
+        setError('No playable stations found');
+        setLoading(false);
+        // Stop tuning effect if no valid station found
+        await stopTuningEffect(0.3);
+      }
+    } catch (error) {
+      console.error('Error during station change:', error);
+      setLoading(false);
+      await stopTuningEffect(0.3);
+    } finally {
+      isTuningRef.current = false;
+    }
+  }, [currentIndex, stations.length, pause, findValidStation, stopTuningEffect, startTuningEffect, tuningEffectEnabled]);
 
   // Previous station
   const previous = useCallback(async () => {
     if (stations.length === 0) return;
 
-    // Clear any previous error when switching stations
-    setError(null);
-
-    // Pause current playback
-    pause();
-
-    
-    const prevIndex = currentIndex === 0 ? stations.length - 1 : currentIndex - 1;
-    const validIndex = await findValidStation(prevIndex);
-
-    if (validIndex !== null) {
-      setCurrentIndex(validIndex);
-    } else {
-      setError('No playable stations found');
+    // Prevent concurrent station changes
+    if (isTuningRef.current) {
+      console.log('⏸️ Station change already in progress, skipping');
+      return;
     }
-  }, [currentIndex, stations.length, pause, findValidStation]);
+
+    isTuningRef.current = true;
+
+    try {
+      // Clear any previous error when switching stations
+      setError(null);
+
+      // Pause current playback
+      pause();
+
+      // 🎵 IMMEDIATELY start tuning effect (before validation) if enabled
+      if (tuningEffectEnabled) {
+        console.log('📻 Immediately starting tuning effect...');
+        startTuningEffect({ volume: 0.4, preset: 'random' }); // Random preset for variety
+      }
+      setLoading(true);
+
+      // Find previous valid station
+      const prevIndex = currentIndex === 0 ? stations.length - 1 : currentIndex - 1;
+      const validIndex = await findValidStation(prevIndex);
+
+      if (validIndex !== null) {
+        setCurrentIndex(validIndex);
+        // Station will auto-play due to useEffect
+        // Tuning effect will stop when station is ready (in oncanplay)
+      } else {
+        setError('No playable stations found');
+        setLoading(false);
+        // Stop tuning effect if no valid station found
+        await stopTuningEffect(0.3);
+      }
+    } catch (error) {
+      console.error('Error during station change:', error);
+      setLoading(false);
+      await stopTuningEffect(0.3);
+    } finally {
+      isTuningRef.current = false;
+    }
+  }, [currentIndex, stations.length, pause, findValidStation, stopTuningEffect, startTuningEffect, tuningEffectEnabled]);
 
   // Auto-play when station changes
   useEffect(() => {
@@ -593,6 +716,13 @@ export function useAudioPlayer(stations: RadioStation[]) {
         shouldAutoSkipRef.current = true;
       } else {
         console.log('🎵 Station changed, auto-playing new station...');
+
+        // Ensure tuning effect is playing during auto-play (especially for auto-skip scenarios)
+        if (tuningEffectEnabled && !isTuning()) {
+          console.log('📻 Starting tuning effect for auto-play...');
+          startTuningEffect({ volume: 0.4, preset: 'random' });
+        }
+
         play();
       }
     }
@@ -604,7 +734,7 @@ export function useAudioPlayer(stations: RadioStation[]) {
 
   // Auto-skip on playback errors
   useEffect(() => {
-    if (shouldAutoSkipRef.current && stations.length > 1) {
+    if (shouldAutoSkipRef.current && stations.length > 1 && !autoSkipPendingRef.current) {
       // Prevent infinite loop by limiting attempts
       if (maxAutoSkipAttemptsRef.current >= 5) {
         console.warn('Max auto-skip attempts reached, stopping');
@@ -612,24 +742,30 @@ export function useAudioPlayer(stations: RadioStation[]) {
         console.error('Unable to find playable station after 5 attempts');
         shouldAutoSkipRef.current = false;
         maxAutoSkipAttemptsRef.current = 0;
+        autoSkipPendingRef.current = false;
         setError('No playable stations found in this area');
         return;
       }
 
-      // Reset the flag
+      // Immediately reset flags to prevent duplicate auto-skips
       shouldAutoSkipRef.current = false;
-      maxAutoSkipAttemptsRef.current += 1;
+      autoSkipPendingRef.current = true;
+      const attemptNumber = maxAutoSkipAttemptsRef.current + 1;
+      maxAutoSkipAttemptsRef.current = attemptNumber;
 
-      // Auto-skip will trigger auto-play
+      console.log(`⏭️ Auto-skipping to next station (attempt ${attemptNumber}/5)...`);
 
       // Auto-skip to next station after a short delay
       const skipTimer = setTimeout(() => {
-        console.log(`Auto-skipping (attempt ${maxAutoSkipAttemptsRef.current}/5)...`);
         const nextIndex = (currentIndex + 1) % stations.length;
         setCurrentIndex(nextIndex);
-      }, 1000);
+        autoSkipPendingRef.current = false;
+      }, 500); // Reduced delay from 1000ms to 500ms for faster response
 
-      return () => clearTimeout(skipTimer);
+      return () => {
+        clearTimeout(skipTimer);
+        autoSkipPendingRef.current = false;
+      };
     }
   }, [currentIndex, stations.length]); // Remove error from dependencies to prevent infinite loops
 
