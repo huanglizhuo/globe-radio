@@ -124,8 +124,8 @@ export function RetroRadioUI({
           />
         </div>
 
-        {/* Tuning Effect Toggle */}
-        <div className="mt-2 bg-gradient-to-b from-amber-950 to-black rounded-lg p-2 border border-amber-900">
+        {/* Tuning Effect Toggle hide it for now */}
+        {/* <div className="mt-2 bg-gradient-to-b from-amber-950 to-black rounded-lg p-2 border border-amber-900">
           <button
             onClick={onToggleTuningEffect}
             className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-amber-900/30 transition-colors group"
@@ -143,7 +143,7 @@ export function RetroRadioUI({
                 }`} />
             </div>
           </button>
-        </div>
+        </div> */}
       </div>
 
       {/* Retro radio shadow */}

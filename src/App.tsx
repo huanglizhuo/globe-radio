@@ -8,7 +8,7 @@ import type { Coordinates } from './types';
 
 function App() {
   const mapRef = useRef<MapLibreGlobeHandle>(null);
-  const [tuningEffectEnabled, setTuningEffectEnabled] = useState(true); // Default: enabled
+  const [tuningEffectEnabled, setTuningEffectEnabled] = useState(false); // Default: disabled
   const { stations, loading: stationsLoading, searchStations } = useRadioStations();
   const {
     currentStation,
