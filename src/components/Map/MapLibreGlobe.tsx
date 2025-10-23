@@ -107,6 +107,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
     const [showSatellite, setShowSatellite] = useState(false);
     const lastLocationRef = useRef<{ lat: number; lng: number } | null>(null);
     const isUserInteractionRef = useRef(false);
+    const hasInitialLocationFiredRef = useRef(false);
 
     // Store random location in a ref to use across callbacks
     // Use lazy initialization to only call getRandomLocation() once
@@ -194,9 +195,6 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         map.current.setProjection({
           type: 'globe',
         });
-        // Initialize last location
-        const center = map.current.getCenter();
-        lastLocationRef.current = { lat: center.lat, lng: center.lng };
       }
     });
 
@@ -317,6 +315,8 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
       const center = map.current.getCenter();
       if (onLocationChange) {
         console.log(`🎯 Initial location: ${center.lat.toFixed(2)}°, ${center.lng.toFixed(2)}°`);
+        hasInitialLocationFiredRef.current = true;
+        lastLocationRef.current = { lat: center.lat, lng: center.lng };
         onLocationChange(center.lat, center.lng);
       }
     });
@@ -357,6 +357,12 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
           Math.abs(newCenter.lng - lastLocation.lng) > 0.01;
 
         if (significantChange) {
+          // Skip if this is the first move after initial load (prevents duplicate API call)
+          if (!hasInitialLocationFiredRef.current) {
+            console.log(`⏸️ Skipping move event - initial location not yet fired`);
+            return;
+          }
+
           console.log(`🗺️ Map moved significantly: ${newCenter.lat.toFixed(2)}°, ${newCenter.lng.toFixed(2)}°`);
           console.log(`📍 Previous: ${lastLocation ? `${lastLocation.lat.toFixed(2)}°, ${lastLocation.lng.toFixed(2)}°` : 'None'}`);
           console.log(`🎯 User interaction: ${isUserInteractionRef.current ? 'Yes' : 'No'}`);
