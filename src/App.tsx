@@ -1,5 +1,5 @@
-import { useCallback, useEffect } from 'react';
-import { MapLibreGlobe } from './components/Map/MapLibreGlobe';
+import { useCallback, useEffect, useRef } from 'react';
+import { MapLibreGlobe, type MapLibreGlobeHandle } from './components/Map/MapLibreGlobe';
 import { RetroRadioUI } from './components/Radio/RetroRadioUI';
 import { FloatingInfo } from './components/UI/FloatingInfo';
 import { useRadioStations } from './hooks/useRadioStations';
@@ -7,6 +7,7 @@ import { useAudioPlayer } from './hooks/useAudioPlayer';
 import type { Coordinates } from './types';
 
 function App() {
+  const mapRef = useRef<MapLibreGlobeHandle>(null);
   const { stations, loading: stationsLoading, searchStations } = useRadioStations();
   const {
     currentStation,
@@ -56,6 +57,11 @@ function App() {
           next();
           console.log('⌨️ Arrow Right pressed - next station');
           break;
+        case 'Enter':
+          event.preventDefault();
+          mapRef.current?.jumpToRandomLocation();
+          console.log('⌨️ Enter pressed - jumping to random location');
+          break;
       }
     };
 
@@ -69,7 +75,7 @@ function App() {
   return (
     <div className="w-screen h-screen bg-black relative overflow-hidden">
       {/* Map fills entire screen */}
-      <MapLibreGlobe onLocationChange={handleLocationChange} />
+      <MapLibreGlobe ref={mapRef} onLocationChange={handleLocationChange} />
 
       {/* Retro Radio UI - top right */}
       <RetroRadioUI

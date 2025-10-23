@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 interface MapLibreGlobeProps {
   onLocationChange?: (lat: number, lon: number) => void;
+}
+
+export interface MapLibreGlobeHandle {
+  jumpToRandomLocation: () => void;
 }
 
 // MapTiler API Key - Free tier: 100,000 requests/month
@@ -95,20 +99,38 @@ function getRandomLocation(): [number, number] {
   return randomCity.coords as [number, number];
 }
 
-export function MapLibreGlobe({ onLocationChange }: MapLibreGlobeProps) {
-  const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<maplibregl.Map | null>(null);
-  const moveEndTimerRef = useRef<number | undefined>(undefined);
-  const [showSatellite, setShowSatellite] = useState(false);
-  const lastLocationRef = useRef<{ lat: number; lng: number } | null>(null);
-  const isUserInteractionRef = useRef(false);
+export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>(
+  ({ onLocationChange }, ref) => {
+    const mapContainer = useRef<HTMLDivElement>(null);
+    const map = useRef<maplibregl.Map | null>(null);
+    const moveEndTimerRef = useRef<number | undefined>(undefined);
+    const [showSatellite, setShowSatellite] = useState(false);
+    const lastLocationRef = useRef<{ lat: number; lng: number } | null>(null);
+    const isUserInteractionRef = useRef(false);
 
-  // Store random location in a ref to use across callbacks
-  // Use lazy initialization to only call getRandomLocation() once
-  const initialLocationRef = useRef<[number, number] | null>(null);
-  if (initialLocationRef.current === null) {
-    initialLocationRef.current = getRandomLocation();
-  }
+    // Store random location in a ref to use across callbacks
+    // Use lazy initialization to only call getRandomLocation() once
+    const initialLocationRef = useRef<[number, number] | null>(null);
+    if (initialLocationRef.current === null) {
+      initialLocationRef.current = getRandomLocation();
+    }
+
+    // Expose method to jump to random location
+    useImperativeHandle(ref, () => ({
+      jumpToRandomLocation: () => {
+        if (!map.current) return;
+
+        const newLocation = getRandomLocation();
+        console.log(`🎲 Jumping to random location: ${newLocation[0].toFixed(2)}°, ${newLocation[1].toFixed(2)}°`);
+
+        // Fly to the new location with animation
+        map.current.flyTo({
+          center: [newLocation[0], newLocation[1]],
+          duration: 2000, // 2 second animation
+          essential: true // This animation is considered essential with respect to prefers-reduced-motion
+        });
+      }
+    }));
 
   useEffect(() => {
     if (!mapContainer.current || map.current) return; // Initialize only once
@@ -148,6 +170,7 @@ export function MapLibreGlobe({ onLocationChange }: MapLibreGlobeProps) {
       pitch: 0,
       bearing: 0,
       attributionControl: false,
+      keyboard: false, // Disable keyboard navigation (arrow keys used for station switching)
     });
 
     // Add navigation controls to top left (below satellite toggle)
@@ -422,4 +445,6 @@ export function MapLibreGlobe({ onLocationChange }: MapLibreGlobeProps) {
       </button>
     </div>
   );
-}
+});
+
+MapLibreGlobe.displayName = 'MapLibreGlobe';

@@ -54,7 +54,7 @@ export function FloatingInfo() {
             {/* Description */}
             <div>
               <p className="text-gray-400 text-sm leading-relaxed">
-                Spin the globe to discover radio stations around the world
+                Spin the globe to discover radio stations around the world. Press Enter to jump to a random city.
               </p>
             </div>
 
@@ -70,6 +70,18 @@ export function FloatingInfo() {
                     Space
                   </kbd>
                   <span className="text-gray-400 text-xs">Play / Pause</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <kbd className="px-2 py-1 bg-gray-800 border border-gray-600 rounded text-gray-300 text-xs font-mono">
+                    ← / →
+                  </kbd>
+                  <span className="text-gray-400 text-xs">Previous / Next Station</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <kbd className="px-2 py-1 bg-gray-800 border border-gray-600 rounded text-gray-300 text-xs font-mono">
+                    Enter
+                  </kbd>
+                  <span className="text-gray-400 text-xs">Random location of the globe</span>
                 </div>
               </div>
             </div>
