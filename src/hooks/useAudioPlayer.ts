@@ -161,29 +161,56 @@ export function useAudioPlayer(stations: RadioStation[]) {
 
       return new Promise((resolve) => {
         let testHls: Hls | null = null;
+        let cleanedUp = false;
+        let resolved = false;
 
-        const timeout = setTimeout(() => {
-          console.log(`⏱️ [${station.name}] Validation timeout - skipping`);
-          cleanup();
-          validationCacheRef.current.set(station.stationuuid, false);
-          resolve(false);
-        }, 5000); // 5 second timeout
+        // Safe resolve - only resolves once
+        const safeResolve = (result: boolean) => {
+          if (resolved) return;
+          resolved = true;
+          validationCacheRef.current.set(station.stationuuid, result);
+          resolve(result);
+        };
 
         const cleanup = () => {
+          if (cleanedUp) return;
+          cleanedUp = true;
+
           clearTimeout(timeout);
-          testAudio.pause();
-          testAudio.src = '';
+
+          // Remove event handlers to prevent them from firing after cleanup
+          testAudio.oncanplay = null;
+          testAudio.onerror = null;
+
+          // Cleanup audio element
+          try {
+            testAudio.pause();
+            testAudio.src = '';
+          } catch (e) {
+            // Ignore errors during cleanup
+          }
+
+          // Cleanup HLS instance
           if (testHls) {
-            testHls.destroy();
+            try {
+              testHls.destroy();
+            } catch (e) {
+              // Ignore errors during cleanup
+            }
             testHls = null;
           }
         };
 
+        const timeout = setTimeout(() => {
+          console.log(`⏱️ [${station.name}] Validation timeout - skipping`);
+          cleanup();
+          safeResolve(false);
+        }, 5000); // 5 second timeout
+
         testAudio.oncanplay = () => {
           console.log(`✅ [${station.name}] Stream validated successfully`);
           cleanup();
-          validationCacheRef.current.set(station.stationuuid, true);
-          resolve(true);
+          safeResolve(true);
         };
 
         testAudio.onerror = () => {
@@ -192,8 +219,7 @@ export function useAudioPlayer(stations: RadioStation[]) {
             console.log(`❌ [${station.name}] Stream validation failed:`, testAudio.error?.code);
           }
           cleanup();
-          validationCacheRef.current.set(station.stationuuid, false);
-          resolve(false);
+          safeResolve(false);
         };
 
         // Test the stream
@@ -208,8 +234,7 @@ export function useAudioPlayer(stations: RadioStation[]) {
           testHls.on(Hls.Events.MANIFEST_PARSED, () => {
             console.log(`✅ [${station.name}] HLS manifest validated`);
             cleanup();
-            validationCacheRef.current.set(station.stationuuid, true);
-            resolve(true);
+            safeResolve(true);
           });
 
           testHls.on(Hls.Events.ERROR, (_event, data) => {
@@ -219,8 +244,7 @@ export function useAudioPlayer(stations: RadioStation[]) {
                 console.log(`❌ [${station.name}] HLS validation failed:`, data.type);
               }
               cleanup();
-              validationCacheRef.current.set(station.stationuuid, false);
-              resolve(false);
+              safeResolve(false);
             }
           });
 
@@ -561,8 +585,16 @@ export function useAudioPlayer(stations: RadioStation[]) {
     const stationChanged = prevStationRef.current?.stationuuid !== currentStation?.stationuuid;
 
     if (stationChanged && currentStation) {
-      console.log('🎵 Station changed, auto-playing new station...');
-      play();
+      // Check validation cache - don't auto-play if station is known to be invalid
+      const cached = validationCacheRef.current.get(currentStation.stationuuid);
+      if (cached === false) {
+        console.log(`⏭️ Station ${currentStation.name} is cached as invalid, skipping auto-play`);
+        // Trigger auto-skip since we know this station won't work
+        shouldAutoSkipRef.current = true;
+      } else {
+        console.log('🎵 Station changed, auto-playing new station...');
+        play();
+      }
     }
 
     // Update refs for next render
@@ -601,12 +633,8 @@ export function useAudioPlayer(stations: RadioStation[]) {
     }
   }, [currentIndex, stations.length]); // Remove error from dependencies to prevent infinite loops
 
-  // Reset auto-skip attempts when manually changing stations
-  useEffect(() => {
-    return () => {
-      maxAutoSkipAttemptsRef.current = 0;
-    };
-  }, [currentIndex]);
+  // Note: Counter is reset when stations change (line 627)
+  // We don't reset on currentIndex change to allow the max attempts protection to work during auto-skip
 
   // Reset index when stations change and auto-play first valid station
   const hasAutoPlayedRef = useRef(false);
@@ -645,8 +673,12 @@ export function useAudioPlayer(stations: RadioStation[]) {
             play();
           }, 500);
         } else {
+          console.error('❌ No playable stations found in this region');
           setError('No playable stations found in this region');
-          setCurrentIndex(0); // Still show the first station even if unplayable
+          // Set to first station but don't trigger auto-play (it's known to be invalid)
+          if (stations.length > 0) {
+            setCurrentIndex(0);
+          }
         }
       })();
     }
