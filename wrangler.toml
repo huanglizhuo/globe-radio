@@ -1,0 +1,22 @@
+name = "globe-radio"
+main = "dist/worker.js"
+compatibility_date = "2024-01-01"
+
+[assets]
+directory = "dist"
+binding = "ASSETS"
+
+# For development, Workers provides a default *.workers.dev subdomain
+# Uncomment and customize for your own domain
+# [[routes]]
+# pattern = "yourdomain.com/*"
+# zone_name = "yourdomain.com"
+
+# Development configuration
+[env.development]
+name = "globe-radio-dev"
+
+# Production configuration (uncomment and customize)
+[[env.production.routes]]
+pattern = "globe-radio.clothpath.com/*"
+zone_name = "clothpath.com"

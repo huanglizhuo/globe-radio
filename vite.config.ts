@@ -4,6 +4,15 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  base: './', // Use relative paths for worker assets
+  build: {
+    assetsDir: 'assets',
+    rollupOptions: {
+      output: {
+        manualChunks: undefined, // Single bundle for simplicity in worker deployment
+      }
+    }
+  },
   server: {
     proxy: {
       '/api/radio': {

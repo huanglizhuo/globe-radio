@@ -24,12 +24,12 @@ export function RetroRadioUI({
   error,
   hasMultipleStations,
   volume,
-  tuningEffectEnabled,
+  // tuningEffectEnabled, // Currently unused
   onPlayPause,
   onPrevious,
   onNext,
   onVolumeChange,
-  onToggleTuningEffect,
+  // onToggleTuningEffect, // Currently unused
 }: RetroRadioUIProps) {
   return (
     <div className="absolute top-4 right-4 z-10 w-80 retro-radio">

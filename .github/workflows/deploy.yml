@@ -1,4 +1,4 @@
-name: Deploy to Cloudflare Pages
+name: Deploy to Cloudflare Workers
 
 on:
   push:
@@ -12,7 +12,7 @@ jobs:
     permissions:
       contents: read
       deployments: write
-    name: Deploy to Cloudflare Pages
+    name: Deploy to Cloudflare Workers
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,17 +26,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
-        run: npm run build
+      - name: Build Worker
+        run: npm run build:worker
         env:
           VITE_MAPTILER_API_KEY: ${{ secrets.MAPTILER_API_KEY }}
 
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/pages-action@v1
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: globe-radio
-          directory: dist
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-          branch: main
+          command: deploy
