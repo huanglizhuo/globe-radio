@@ -6,11 +6,8 @@ compatibility_date = "2024-01-01"
 directory = "dist"
 binding = "ASSETS"
 
-# Development configuration
-[env.development]
-name = "globe-radio-dev"
-
-# Production configuration (uncomment and customize)
-[[env.production.routes]]
+# Default configuration
+[env.default]
+name = "globe-radio"
 pattern = "globe-radio.clothpath.com/*"
 zone_name = "clothpath.com"
