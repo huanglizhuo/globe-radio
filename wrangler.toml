@@ -9,5 +9,5 @@ binding = "ASSETS"
 # Default configuration
 [env.default]
 name = "globe-radio"
-pattern = "globe-radio.clothpath.com/*"
+pattern = "gradio.clothpath.com/*"
 zone_name = "clothpath.com"
