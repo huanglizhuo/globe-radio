@@ -98,7 +98,7 @@ export class RadioBrowserAPI {
       console.log(`Searching stations in country: ${countryCode}`);
 
       // Fetch stations from the detected country only
-      const countryStations = await this.searchByCountry(countryCode, 100);
+      const countryStations = await this.searchByCountry(countryCode, 200);
 
       if (countryStations.length === 0) {
         console.warn(`No stations found for ${countryCode}`);
@@ -146,6 +146,26 @@ export class RadioBrowserAPI {
       console.warn('API unavailable, using mock stations:', error);
       // Return mock stations when API is unavailable
       return MOCK_STATIONS.slice(0, limit);
+    }
+  }
+
+  // Get all stations with geographic information (for global map display)
+  static async getAllStationsWithGeo(limit: number = 10000): Promise<RadioStation[]> {
+    try {
+      console.log(`🌍 Fetching up to ${limit} stations with geographic data...`);
+
+      const response = await fetchWithRetry(
+        `/stations/search?limit=${limit}&order=votes&reverse=true&has_geo_info=true&hidebroken=true`
+      );
+
+      const stations = await response.json();
+      console.log(`✅ Loaded ${stations.length} stations with geo coordinates`);
+
+      return stations;
+    } catch (error) {
+      console.error('Error fetching all stations:', error);
+      // Return empty array on error - map will show no markers
+      return [];
     }
   }
 

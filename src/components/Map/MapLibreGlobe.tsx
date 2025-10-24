@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import type { RadioStation } from '../../types';
 
 interface MapLibreGlobeProps {
   onLocationChange?: (lat: number, lon: number) => void;
   initialLocation?: { lat: number; lon: number } | null;
+  stations?: RadioStation[];
+  currentStationUuid?: string | null;
+  onStationClick?: (stationUuid: string, lat: number, lon: number) => void;
 }
 
 export interface MapLibreGlobeHandle {
@@ -101,7 +105,7 @@ function getRandomLocation(): [number, number] {
 }
 
 export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>(
-  ({ onLocationChange, initialLocation }, ref) => {
+  ({ onLocationChange, initialLocation, stations = [], currentStationUuid = null, onStationClick }, ref) => {
     const mapContainer = useRef<HTMLDivElement>(null);
     const map = useRef<maplibregl.Map | null>(null);
     const moveEndTimerRef = useRef<number | undefined>(undefined);
@@ -127,7 +131,10 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
     // Expose method to jump to random location
     useImperativeHandle(ref, () => ({
       jumpToRandomLocation: () => {
-        if (!map.current) return;
+        if (!map.current) {
+          console.warn('⚠️ Map not initialized yet, cannot jump to random location');
+          return;
+        }
 
         const newLocation = getRandomLocation();
         console.log(`🎲 Jumping to random location: ${newLocation[0].toFixed(2)}°, ${newLocation[1].toFixed(2)}°`);
@@ -139,7 +146,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
           essential: true // This animation is considered essential with respect to prefers-reduced-motion
         });
       }
-    }));
+    }), []); // Empty deps array - ref methods don't need to change
 
     useEffect(() => {
       if (!mapContainer.current || map.current) return; // Initialize only once
@@ -153,22 +160,28 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         mapContainer.current.clientHeight || window.innerHeight
       );
 
-      // For MapLibre, zoom level calculation:
-      // At zoom level 0, the world width is 256 pixels
-      // Each zoom level doubles the resolution
+      // For MapLibre Globe projection:
+      // At zoom level 0, the globe has a specific size on screen
+      // Each zoom level doubles the apparent size
       // We want the earth to occupy 80% of the min dimension
-      const earthRadiusPixels = 256; // Base earth radius at zoom 0
-      const targetEarthSize = minDimension * 0.8;
-      const zoomLevel = Math.log2(targetEarthSize / earthRadiusPixels);
+      //
+      // Based on MapLibre globe rendering:
+      // - At zoom 0, the globe diameter is approximately 256 pixels
+      // - Each zoom level doubles the size
+      // - Globe size = 256 * 2^zoom
+      const baseGlobeDiameter = 256; // Globe diameter at zoom 0
+      const targetGlobeSize = minDimension * 0.8;
+      const zoomLevel = Math.log2(targetGlobeSize / baseGlobeDiameter);
 
-      // Clamp zoom level to reasonable bounds (1-5 for globe view)
-      const optimalZoom = Math.max(1, Math.min(4, zoomLevel));
+      // Clamp zoom level to reasonable bounds for globe view
+      // Allow slightly higher zoom for larger screens
+      const optimalZoom = Math.max(0.5, Math.min(5, zoomLevel));
 
       // Get random starting location
       const randomLocation = initialLocationRef.current!; // Safe: initialized above
       console.log(`🌍 Starting location: [${randomLocation[0].toFixed(2)}, ${randomLocation[1].toFixed(2)}]`);
       console.log(`📐 Screen size: ${mapContainer.current.clientWidth}x${mapContainer.current.clientHeight}, min: ${minDimension}px`);
-      console.log(`🔍 Calculated zoom level: ${optimalZoom.toFixed(2)} (target: ${targetEarthSize.toFixed(0)}px)`);
+      console.log(`🔍 Calculated zoom level: ${optimalZoom.toFixed(2)} (target globe size: ${targetGlobeSize.toFixed(0)}px = 80% of ${minDimension}px)`);
 
       // Create map
       map.current = new maplibregl.Map({
@@ -286,6 +299,223 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
             'circle-stroke-color': '#ffffff',
             'circle-stroke-opacity': 1,
           },
+        });
+
+        // Add clustered stations source (non-playing stations only)
+        map.current.addSource('stations-clustered', {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: [],
+          },
+          cluster: true,
+          clusterRadius: 50,
+          clusterMaxZoom: 14,
+        });
+
+        // Add separate source for currently playing station (never clustered)
+        map.current.addSource('stations-playing', {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: [],
+          },
+        });
+
+        // Cluster circle layer (2x size of individual stations)
+        map.current.addLayer({
+          id: 'clusters',
+          type: 'circle',
+          source: 'stations-clustered',
+          filter: ['has', 'point_count'],
+          paint: {
+            'circle-radius': 12, // 2x the 6px individual station size
+            'circle-color': '#10b981', // green-500
+            'circle-opacity': 0.85,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-opacity': 1,
+          },
+        });
+
+        // Cluster count label layer
+        map.current.addLayer({
+          id: 'cluster-count',
+          type: 'symbol',
+          source: 'stations-clustered',
+          filter: ['has', 'point_count'],
+          layout: {
+            'text-field': ['get', 'point_count_abbreviated'],
+            'text-font': ['Noto Sans Bold'],
+            'text-size': 10, // Smaller text to fit in 12px circle
+          },
+          paint: {
+            'text-color': '#ffffff',
+          },
+        });
+
+        // Individual station markers (unclustered)
+        map.current.addLayer({
+          id: 'station-markers',
+          type: 'circle',
+          source: 'stations-clustered',
+          filter: ['!', ['has', 'point_count']],
+          paint: {
+            'circle-radius': 6,
+            'circle-color': '#10b981', // green-500
+            'circle-opacity': 0.8,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-opacity': 0.9,
+          },
+        });
+
+        // Currently playing station (with glowing animation)
+        map.current.addLayer({
+          id: 'station-playing',
+          type: 'circle',
+          source: 'stations-playing',
+          paint: {
+            'circle-radius': 10,
+            'circle-color': '#10b981', // green-500
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 3,
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-opacity': 1,
+          },
+        });
+
+        // Glowing halo layer for playing station
+        map.current.addLayer({
+          id: 'station-playing-halo',
+          type: 'circle',
+          source: 'stations-playing',
+          paint: {
+            'circle-radius': 20,
+            'circle-color': '#10b981',
+            'circle-opacity': 0.3,
+            'circle-blur': 1,
+          },
+        });
+
+        // Add click handler for clusters (zoom in to expand)
+        map.current.on('click', 'clusters', (e) => {
+          if (!map.current || !e.features || e.features.length === 0) return;
+
+          const features = map.current.queryRenderedFeatures(e.point, {
+            layers: ['clusters'],
+          });
+
+          if (features.length === 0) return;
+
+          const clusterId = features[0].properties?.cluster_id;
+          const coordinates = (features[0].geometry as any).coordinates;
+          const source = map.current.getSource('stations-clustered') as maplibregl.GeoJSONSource;
+
+          if (!source || !clusterId) return;
+
+          console.log(`🖱️ Clicked cluster with ${features[0].properties?.point_count} stations`);
+
+          // Get the expansion zoom level for this cluster
+          source.getClusterExpansionZoom(clusterId).then((zoom: number) => {
+            if (!map.current) return;
+
+            // Zoom in to expand the cluster
+            map.current.flyTo({
+              center: coordinates,
+              zoom: zoom || (map.current.getZoom() + 2),
+              duration: 1500,
+              essential: true,
+            });
+          }).catch((err: Error) => {
+            console.error('Error getting cluster expansion zoom:', err);
+          });
+        });
+
+        // Add click handlers for individual station markers
+        map.current.on('click', 'station-markers', (e) => {
+          if (!e.features || e.features.length === 0 || !onStationClick) return;
+
+          const feature = e.features[0];
+          const stationUuid = feature.properties?.stationuuid;
+          const coordinates = (feature.geometry as any).coordinates;
+
+          if (stationUuid && coordinates) {
+            console.log(`🖱️ Clicked station: ${feature.properties?.name}`);
+
+            // Fly to the station location
+            map.current?.flyTo({
+              center: [coordinates[0], coordinates[1]],
+              zoom: Math.max(map.current.getZoom(), 4),
+              duration: 1500,
+              essential: true,
+            });
+
+            // Notify parent component
+            onStationClick(stationUuid, coordinates[1], coordinates[0]);
+          }
+        });
+
+        // Also add click handler for playing station
+        map.current.on('click', 'station-playing', (e) => {
+          if (!e.features || e.features.length === 0 || !onStationClick) return;
+
+          const feature = e.features[0];
+          const stationUuid = feature.properties?.stationuuid;
+          const coordinates = (feature.geometry as any).coordinates;
+
+          if (stationUuid && coordinates) {
+            console.log(`🖱️ Clicked playing station: ${feature.properties?.name}`);
+
+            // Fly to the station location
+            map.current?.flyTo({
+              center: [coordinates[0], coordinates[1]],
+              zoom: Math.max(map.current.getZoom(), 4),
+              duration: 1500,
+              essential: true,
+            });
+
+            // Notify parent component
+            onStationClick(stationUuid, coordinates[1], coordinates[0]);
+          }
+        });
+
+        // Change cursor to pointer when hovering over clusters
+        map.current.on('mouseenter', 'clusters', () => {
+          if (map.current) {
+            map.current.getCanvas().style.cursor = 'pointer';
+          }
+        });
+
+        map.current.on('mouseleave', 'clusters', () => {
+          if (map.current) {
+            map.current.getCanvas().style.cursor = '';
+          }
+        });
+
+        // Change cursor to pointer when hovering over station markers
+        map.current.on('mouseenter', 'station-markers', () => {
+          if (map.current) {
+            map.current.getCanvas().style.cursor = 'pointer';
+          }
+        });
+
+        map.current.on('mouseleave', 'station-markers', () => {
+          if (map.current) {
+            map.current.getCanvas().style.cursor = '';
+          }
+        });
+
+        map.current.on('mouseenter', 'station-playing', () => {
+          if (map.current) {
+            map.current.getCanvas().style.cursor = 'pointer';
+          }
+        });
+
+        map.current.on('mouseleave', 'station-playing', () => {
+          if (map.current) {
+            map.current.getCanvas().style.cursor = '';
+          }
         });
 
         // Add satellite imagery source and layer (after all other layers)
@@ -412,6 +642,129 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         map.current.once('load', toggleLayer);
       }
     }, [showSatellite]);
+
+    // Update station markers when stations or currentStationUuid changes
+    useEffect(() => {
+      if (!map.current || !map.current.isStyleLoaded()) return;
+
+      const updateStations = () => {
+        if (!map.current) return;
+
+        const clusteredSource = map.current.getSource('stations-clustered') as maplibregl.GeoJSONSource;
+        const playingSource = map.current.getSource('stations-playing') as maplibregl.GeoJSONSource;
+
+        if (!clusteredSource || !playingSource) {
+          console.warn('Station sources not yet loaded');
+          return;
+        }
+
+        // Filter stations with valid coordinates
+        const validStations = stations.filter(
+          station => station.geo_lat !== null && station.geo_long !== null
+        );
+
+        // Split into playing and non-playing stations
+        const playingStations = validStations.filter(
+          station => station.stationuuid === currentStationUuid
+        );
+        const nonPlayingStations = validStations.filter(
+          station => station.stationuuid !== currentStationUuid
+        );
+
+        // Convert non-playing stations to GeoJSON features for clustering
+        const clusteredFeatures = nonPlayingStations.map(station => ({
+          type: 'Feature' as const,
+          properties: {
+            stationuuid: station.stationuuid,
+            name: station.name,
+          },
+          geometry: {
+            type: 'Point' as const,
+            coordinates: [station.geo_long!, station.geo_lat!],
+          },
+        }));
+
+        // Convert playing station to GeoJSON features (always separate)
+        const playingFeatures = playingStations.map(station => ({
+          type: 'Feature' as const,
+          properties: {
+            stationuuid: station.stationuuid,
+            name: station.name,
+            isPlaying: true,
+          },
+          geometry: {
+            type: 'Point' as const,
+            coordinates: [station.geo_long!, station.geo_lat!],
+          },
+        }));
+
+        // Update clustered source (non-playing stations)
+        clusteredSource.setData({
+          type: 'FeatureCollection',
+          features: clusteredFeatures,
+        });
+
+        // Update playing source (currently playing station)
+        playingSource.setData({
+          type: 'FeatureCollection',
+          features: playingFeatures,
+        });
+
+        console.log(`📍 Updated ${clusteredFeatures.length} clustered stations + ${playingFeatures.length} playing station on map`);
+      };
+
+      // Wait for map to be loaded before updating
+      if (map.current.loaded()) {
+        updateStations();
+      } else {
+        map.current.once('load', updateStations);
+      }
+    }, [stations, currentStationUuid]);
+
+    // Animate the glowing halo for playing station
+    useEffect(() => {
+      if (!map.current || !currentStationUuid) return;
+
+      let animationFrameId: number;
+      const startTime = Date.now();
+
+      const animate = () => {
+        if (!map.current || !map.current.getLayer('station-playing-halo')) {
+          return;
+        }
+
+        const elapsed = Date.now() - startTime;
+        const cycle = (elapsed % 2000) / 2000; // 2 second cycle
+
+        // Pulsing effect: opacity goes from 0.2 to 0.5 and back
+        const opacity = 0.2 + Math.sin(cycle * Math.PI * 2) * 0.15;
+
+        // Pulsing effect: radius goes from 15 to 25 and back
+        const radius = 15 + Math.sin(cycle * Math.PI * 2) * 5;
+
+        try {
+          map.current.setPaintProperty('station-playing-halo', 'circle-opacity', opacity);
+          map.current.setPaintProperty('station-playing-halo', 'circle-radius', radius);
+        } catch (error) {
+          // Layer might not be ready yet
+          console.debug('Animation error:', error);
+        }
+
+        animationFrameId = requestAnimationFrame(animate);
+      };
+
+      // Start animation if map is loaded
+      if (map.current.loaded() && map.current.getLayer('station-playing-halo')) {
+        animate();
+      }
+
+      // Cleanup
+      return () => {
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId);
+        }
+      };
+    }, [currentStationUuid]);
 
     return (
       <div style={{ width: '100%', height: '100%', position: 'relative' }}>

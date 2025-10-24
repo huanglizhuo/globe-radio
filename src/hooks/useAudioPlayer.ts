@@ -821,6 +821,18 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stations]); // Only run when stations array changes, not when play changes
 
+  // Select and play a specific station by UUID
+  const selectStation = useCallback((stationUuid: string) => {
+    const index = stations.findIndex(s => s.stationuuid === stationUuid);
+    if (index !== -1) {
+      console.log(`🎯 Selecting station: ${stations[index].name}`);
+      setCurrentIndex(index);
+      // Station will auto-play due to useEffect
+    } else {
+      console.warn(`Station with UUID ${stationUuid} not found`);
+    }
+  }, [stations]);
+
   return {
     currentStation,
     currentIndex,
@@ -835,6 +847,7 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
     togglePlayPause,
     next,
     previous,
+    selectStation,
     hasMultipleStations: stations.length > 1,
   };
 }

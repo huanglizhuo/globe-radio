@@ -11,7 +11,7 @@ function App() {
   const mapRef = useRef<MapLibreGlobeHandle>(null);
   const [tuningEffectEnabled, setTuningEffectEnabled] = useState(false); // Default: disabled
   const [initialLocation, setInitialLocation] = useState<Coordinates | null>(null);
-  const { stations, loading: stationsLoading, searchStations } = useRadioStations();
+  const { allStations, playableStations, loading: stationsLoading, loadAllStations, searchStations } = useRadioStations();
   const {
     currentStation,
     isPlaying,
@@ -23,15 +23,37 @@ function App() {
     togglePlayPause,
     next,
     previous,
+    selectStation,
     hasMultipleStations,
-  } = useAudioPlayer(stations, tuningEffectEnabled);
+  } = useAudioPlayer(playableStations, tuningEffectEnabled);
 
-  // Handle map location change
+  // Handle station marker click
+  const handleStationClick = useCallback(async (stationUuid: string, lat: number, lon: number) => {
+    console.log(`🎯 Station clicked: ${stationUuid} at ${lat.toFixed(2)}°, ${lon.toFixed(2)}°`);
+
+    // First, search for local stations at that location
+    const coordinates: Coordinates = { lat, lon };
+    await searchStations(coordinates);
+
+    // Then try to select the clicked station (it should now be in playableStations)
+    // We need to wait a bit for the state to update
+    setTimeout(() => {
+      selectStation(stationUuid);
+    }, 100);
+  }, [selectStation, searchStations]);
+
+  // Handle map location change - search for local stations
   const handleLocationChange = useCallback((lat: number, lon: number) => {
     const coordinates: Coordinates = { lat, lon };
-    console.log(`Location changed to: ${lat.toFixed(2)}°, ${lon.toFixed(2)}°`);
+    console.log(`🗺️ Location changed to: ${lat.toFixed(2)}°, ${lon.toFixed(2)}° - searching local stations`);
     searchStations(coordinates);
   }, [searchStations]);
+
+  // Load all stations globally on app initialization
+  useEffect(() => {
+    console.log('🌍 App initialized - loading all stations...');
+    loadAllStations(10000); // Load up to 10,000 stations with geo coordinates
+  }, [loadAllStations]);
 
   // Detect user's country on app initialization
   useEffect(() => {
@@ -99,8 +121,12 @@ function App() {
           break;
         case 'Enter':
           event.preventDefault();
-          mapRef.current?.jumpToRandomLocation();
-          console.log('⌨️ Enter pressed - jumping to random location');
+          if (mapRef.current) {
+            console.log('⌨️ Enter pressed - jumping to random location');
+            mapRef.current.jumpToRandomLocation();
+          } else {
+            console.warn('⚠️ Enter pressed but map ref is null');
+          }
           break;
       }
     };
@@ -119,6 +145,9 @@ function App() {
         ref={mapRef}
         onLocationChange={handleLocationChange}
         initialLocation={initialLocation}
+        stations={allStations}
+        currentStationUuid={currentStation?.stationuuid ?? null}
+        onStationClick={handleStationClick}
       />
 
       {/* Retro Radio UI - top right */}
@@ -140,7 +169,7 @@ function App() {
       {/* Loading indicator */}
       {stationsLoading && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 px-4 py-2 rounded-lg backdrop-blur-sm z-10">
-          <p className="text-white text-sm">🔍 Searching for stations...</p>
+          <p className="text-white text-sm">🔍 Loading radio stations...</p>
         </div>
       )}
 
