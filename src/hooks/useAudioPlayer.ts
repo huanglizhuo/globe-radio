@@ -11,10 +11,10 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
   const [error, setError] = useState<string | null>(null);
   const [volume, setVolume] = useState(0.7);
   const [validatingStream, setValidatingStream] = useState(false);
-  const [autoSkipTrigger, setAutoSkipTrigger] = useState(0);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const shouldAutoSkipRef = useRef(false);
   const maxAutoSkipAttemptsRef = useRef(0);
   const prevStationRef = useRef<RadioStation | null>(null);
   const validationCacheRef = useRef<Map<string, boolean>>(new Map()); // Cache validation results
@@ -92,7 +92,7 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
         console.log(`⚠️ Stream error for "${currentStation?.name}" - triggering auto-skip...`);
         // Don't show error in UI since validation already filtered bad streams
         // Just auto-skip to next station
-        setAutoSkipTrigger(prev => prev + 1);
+        shouldAutoSkipRef.current = true;
       } else {
         // Only log to console, don't show error in UI
         console.log('Playback error:', errorMessage);
@@ -447,7 +447,7 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
             console.log('HLS fallback failed - auto-skipping to next station...');
             setIsPlaying(false);
             setLoading(false);
-            setAutoSkipTrigger(prev => prev + 1);
+            shouldAutoSkipRef.current = true;
           }
         };
 
@@ -545,7 +545,7 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
             console.log('Safari HLS fallback failed - auto-skipping to next station...');
             setIsPlaying(false);
             setLoading(false);
-            setAutoSkipTrigger(prev => prev + 1);
+            shouldAutoSkipRef.current = true;
           }
         }
       } else {
@@ -713,7 +713,7 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
       if (cached === false) {
         console.log(`⏭️ Station ${currentStation.name} is cached as invalid, skipping auto-play`);
         // Trigger auto-skip since we know this station won't work
-        setAutoSkipTrigger(prev => prev + 1);
+        shouldAutoSkipRef.current = true;
       } else {
         console.log('🎵 Station changed, auto-playing new station...');
 
@@ -734,20 +734,21 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
 
   // Auto-skip on playback errors
   useEffect(() => {
-    if (autoSkipTrigger > 0 && stations.length > 1 && !autoSkipPendingRef.current) {
+    if (shouldAutoSkipRef.current && stations.length > 1 && !autoSkipPendingRef.current) {
       // Prevent infinite loop by limiting attempts
       if (maxAutoSkipAttemptsRef.current >= 5) {
         console.warn('Max auto-skip attempts reached, stopping');
         // Don't show error in UI since validation already filtered bad streams
         console.error('Unable to find playable station after 5 attempts');
-        setAutoSkipTrigger(0); // Reset trigger
+        shouldAutoSkipRef.current = false;
         maxAutoSkipAttemptsRef.current = 0;
         autoSkipPendingRef.current = false;
         setError('No playable stations found in this area');
         return;
       }
 
-      // Immediately reset pending flag to prevent duplicate auto-skips
+      // Immediately reset flags to prevent duplicate auto-skips
+      shouldAutoSkipRef.current = false;
       autoSkipPendingRef.current = true;
       const attemptNumber = maxAutoSkipAttemptsRef.current + 1;
       maxAutoSkipAttemptsRef.current = attemptNumber;
@@ -766,7 +767,7 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
         autoSkipPendingRef.current = false;
       };
     }
-  }, [autoSkipTrigger, currentIndex, stations.length]); // Trigger on autoSkipTrigger changes
+  }, [currentIndex, stations.length]); // Remove error from dependencies to prevent infinite loops
 
   // Note: Counter is reset when stations change (line 627)
   // We don't reset on currentIndex change to allow the max attempts protection to work during auto-skip
