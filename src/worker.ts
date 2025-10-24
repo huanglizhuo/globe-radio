@@ -66,6 +66,62 @@ async function handleAPIProxy(request: Request, url: URL): Promise<Response> {
   }
 }
 
+/**
+ * Handle country detection using Cloudflare's CF-IPCountry header
+ */
+async function handleCountryDetection(request: Request): Promise<Response> {
+  try {
+    // Extract country from Cloudflare header
+    const countryCode = request.headers.get('CF-IPCountry');
+
+    if (!countryCode) {
+      console.log('🌍 No CF-IPCountry header found, using fallback');
+      return new Response(JSON.stringify({
+        error: 'Country detection unavailable',
+        country: null,
+        lat: null,
+        lon: null,
+        city: null
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    console.log(`🌍 Detected country: ${countryCode} from IP: ${request.headers.get('CF-Connecting-IP') || 'unknown'}`);
+
+    // Return country detection response
+    return new Response(JSON.stringify({
+      country: countryCode,
+      lat: null, // Will be handled by client-side mapping
+      lon: null, // Will be handled by client-side mapping
+      city: null, // Will be handled by client-side mapping
+      detected: true
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
+      }
+    });
+
+  } catch (error) {
+    console.error('Country detection error:', error);
+    return new Response(JSON.stringify({
+      error: 'Country detection failed',
+      country: null,
+      lat: null,
+      lon: null,
+      city: null
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
 // Export the handler for wrangler
 export default {
   async fetch(request: Request, _env: any, ctx: any): Promise<Response> {
@@ -73,6 +129,11 @@ export default {
     let options: { [key: string]: any } = {};
 
     try {
+      // Handle country detection API
+      if (url.pathname === '/api/country') {
+        return handleCountryDetection(request);
+      }
+
       // Handle API proxying for radio-browser API
       if (url.pathname.startsWith('/api/radio/')) {
         return handleAPIProxy(request, url);

@@ -4,11 +4,13 @@ import { RetroRadioUI } from './components/Radio/RetroRadioUI';
 import { FloatingInfo } from './components/UI/FloatingInfo';
 import { useRadioStations } from './hooks/useRadioStations';
 import { useAudioPlayer } from './hooks/useAudioPlayer';
+import { getCountryLocationWithFallback } from './utils/countryCoordinates';
 import type { Coordinates } from './types';
 
 function App() {
   const mapRef = useRef<MapLibreGlobeHandle>(null);
   const [tuningEffectEnabled, setTuningEffectEnabled] = useState(false); // Default: disabled
+  const [initialLocation, setInitialLocation] = useState<Coordinates | null>(null);
   const { stations, loading: stationsLoading, searchStations } = useRadioStations();
   const {
     currentStation,
@@ -30,6 +32,34 @@ function App() {
     console.log(`Location changed to: ${lat.toFixed(2)}°, ${lon.toFixed(2)}°`);
     searchStations(coordinates);
   }, [searchStations]);
+
+  // Detect user's country on app initialization
+  useEffect(() => {
+    const detectCountry = async () => {
+      try {
+        console.log('🌍 Detecting user country...');
+        const response = await fetch('/api/country');
+        const data = await response.json();
+
+        if (data.detected && data.country) {
+          const countryLocation = getCountryLocationWithFallback(data.country);
+          setInitialLocation({
+            lat: countryLocation.lat,
+            lon: countryLocation.lon
+          });
+          console.log(`🌍 Country-based location set: ${countryLocation.city}`);
+        } else {
+          console.log('❌ Country detection failed, using random location');
+          setInitialLocation(null); // Will trigger random location
+        }
+      } catch (error) {
+        console.error('❌ Country detection error:', error);
+        setInitialLocation(null); // Will trigger random location
+      }
+    };
+
+    detectCountry();
+  }, []);
 
   // Handle tuning effect toggle
   const handleToggleTuningEffect = useCallback(() => {
@@ -85,7 +115,11 @@ function App() {
   return (
     <div className="w-screen h-screen bg-black relative overflow-hidden">
       {/* Map fills entire screen */}
-      <MapLibreGlobe ref={mapRef} onLocationChange={handleLocationChange} />
+      <MapLibreGlobe
+        ref={mapRef}
+        onLocationChange={handleLocationChange}
+        initialLocation={initialLocation}
+      />
 
       {/* Retro Radio UI - top right */}
       <RetroRadioUI

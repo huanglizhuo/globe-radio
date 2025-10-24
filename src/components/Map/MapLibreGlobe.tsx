@@ -4,6 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 
 interface MapLibreGlobeProps {
   onLocationChange?: (lat: number, lon: number) => void;
+  initialLocation?: { lat: number; lon: number } | null;
 }
 
 export interface MapLibreGlobeHandle {
@@ -100,7 +101,7 @@ function getRandomLocation(): [number, number] {
 }
 
 export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>(
-  ({ onLocationChange }, ref) => {
+  ({ onLocationChange, initialLocation }, ref) => {
     const mapContainer = useRef<HTMLDivElement>(null);
     const map = useRef<maplibregl.Map | null>(null);
     const moveEndTimerRef = useRef<number | undefined>(undefined);
@@ -109,11 +110,18 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
     const isUserInteractionRef = useRef(false);
     const hasInitialLocationFiredRef = useRef(false);
 
-    // Store random location in a ref to use across callbacks
-    // Use lazy initialization to only call getRandomLocation() once
+    // Store initial location in a ref to use across callbacks
+    // Use provided initialLocation or fallback to random location
     const initialLocationRef = useRef<[number, number] | null>(null);
     if (initialLocationRef.current === null) {
-      initialLocationRef.current = getRandomLocation();
+      if (initialLocation) {
+        // Use country-based location if provided
+        initialLocationRef.current = [initialLocation.lon, initialLocation.lat];
+        console.log(`🌍 Using country-based location: ${initialLocation.lat.toFixed(2)}°, ${initialLocation.lon.toFixed(2)}°`);
+      } else {
+        // Fallback to random location
+        initialLocationRef.current = getRandomLocation();
+      }
     }
 
     // Expose method to jump to random location
@@ -377,7 +385,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
       }, 400);
     });
 
-  }, [onLocationChange]);
+  }, [onLocationChange, initialLocation]);
 
   // Toggle satellite layer visibility
   useEffect(() => {
