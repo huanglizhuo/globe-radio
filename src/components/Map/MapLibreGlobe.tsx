@@ -589,10 +589,12 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
           const newCenter = map.current.getCenter();
           const lastLocation = lastLocationRef.current;
 
-          // Check if location has changed significantly (more than 0.01 degrees)
+          // Check if location has changed significantly (more than 0.5 degrees ≈ 55km)
+          // This prevents zoom-induced center shifts from triggering station searches
+          // Only actual panning movements will trigger the search
           const significantChange = !lastLocation ||
-            Math.abs(newCenter.lat - lastLocation.lat) > 0.01 ||
-            Math.abs(newCenter.lng - lastLocation.lng) > 0.01;
+            Math.abs(newCenter.lat - lastLocation.lat) > 0.5 ||
+            Math.abs(newCenter.lng - lastLocation.lng) > 0.5;
 
           if (significantChange) {
             // Skip if this is the first move after initial load (prevents duplicate API call)
@@ -610,8 +612,10 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
 
             // Only trigger search if it's a user interaction or significant change
             onLocationChange(newCenter.lat, newCenter.lng);
+          } else {
+            // Update last location even for small changes to prevent accumulation
+            lastLocationRef.current = { lat: newCenter.lat, lng: newCenter.lng };
           }
-          // Remove the else clause to stop logging minor movements
         }, 400);
       });
 
