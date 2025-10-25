@@ -9,12 +9,11 @@ export function FloatingInfo() {
 
   return (
     <div
-      className={`fixed z-10 transition-all duration-300 ease-in-out ${isCollapsed
-        ? 'bottom-4 left-4'
-        : 'bottom-4 left-4'
-        }`}
+      className={`fixed bottom-4 left-0 z-10 transition-all duration-300 ease-in-out ${
+        isCollapsed ? '-translate-x-[calc(100%-3rem)]' : 'translate-x-0'
+      }`}
     >
-      <div className="bg-black/80 backdrop-blur-sm rounded-lg border border-gray-700 shadow-2xl overflow-hidden">
+      <div className="bg-black/80 backdrop-blur-sm rounded-r-lg border border-l-0 border-gray-700 shadow-2xl overflow-hidden min-w-[280px]">
         {/* Toggle Button */}
         <button
           onClick={toggleCollapse}
@@ -28,8 +27,9 @@ export function FloatingInfo() {
             )}
           </div>
           <svg
-            className={`w-5 h-5 text-gray-400 transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''
-              }`}
+            className={`w-5 h-5 text-gray-400 transition-transform duration-300 ${
+              isCollapsed ? 'rotate-0' : 'rotate-180'
+            }`}
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
