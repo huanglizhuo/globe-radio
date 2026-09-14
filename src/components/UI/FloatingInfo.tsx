@@ -1,93 +1,111 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export function FloatingInfo() {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
 
-  const toggleCollapse = () => {
-    setIsCollapsed(!isCollapsed);
+  // Escape + click-outside close the popover
+  useEffect(() => {
+    if (!open) return;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointerDown);
+    };
+  }, [open]);
+
+  const toggleOpen = (next: boolean) => {
+    setOpen(next);
+    if (next) {
+      // Only one overlay at a time: ask the mobile station sheet to yield
+      window.dispatchEvent(new CustomEvent('gr:close-station-sheet'));
+    }
   };
 
   return (
     <div
-      className={`fixed bottom-4 left-0 z-10 transition-all duration-300 ease-in-out ${
-        isCollapsed ? '-translate-x-[calc(100%-3rem)]' : 'translate-x-0'
-      }`}
+      ref={rootRef}
+      className="fixed right-3 top-3 z-10 md:bottom-4 md:left-3 md:right-auto md:top-auto"
     >
-      <div className="bg-black/80 backdrop-blur-sm rounded-r-lg border border-l-0 border-gray-700 shadow-2xl overflow-hidden min-w-[280px]">
-        {/* Toggle Button */}
-        <button
-          onClick={toggleCollapse}
-          className="w-full px-4 py-3 bg-gradient-to-r from-gray-800 to-gray-900 hover:from-gray-700 hover:to-gray-800 transition-all flex items-center justify-between group"
-          aria-label={isCollapsed ? 'Expand info panel' : 'Collapse info panel'}
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-xl">🌍</span>
-            {!isCollapsed && (
-              <span className="text-white font-bold text-lg">Globe Radio</span>
-            )}
-          </div>
-          <svg
-            className={`w-5 h-5 text-gray-400 transition-transform duration-300 ${
-              isCollapsed ? 'rotate-0' : 'rotate-180'
-            }`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M15 19l-7-7 7-7"
-            />
-          </svg>
-        </button>
-
-        {/* Expandable Content */}
+      {open && (
         <div
-          className={`transition-all duration-300 ease-in-out overflow-hidden ${isCollapsed
-            ? 'max-h-0'
-            : 'max-h-64'
-            }`}
+          className="popover-enter absolute right-0 top-14 w-72 rounded-xl border border-white/10 bg-veil-chip p-4 shadow-panel backdrop-blur-md md:bottom-14 md:left-0 md:right-auto md:top-auto"
+          role="dialog"
+          aria-label="About Globe Radio"
         >
-          <div className="p-4 space-y-4">
-            {/* Description */}
-            <div>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                Spin the globe to discover radio stations around the world. Press Enter to jump to a random city.
-              </p>
-            </div>
+          <h2 className="font-display text-xs font-extrabold uppercase tracking-[0.2em] text-ivory-300">
+            Globe Radio
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-ivory-300">
+            Spin the globe — the crosshair tunes into radio stations near wherever it lands.
+          </p>
 
-            {/* Keyboard shortcuts */}
-            <div>
-              <h3 className="text-white font-semibold text-sm mb-3 flex items-center gap-2">
-                <span className="text-lg">⌨️</span>
-                Keyboard Shortcuts
-              </h3>
-              <div className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <kbd className="px-2 py-1 bg-gray-800 border border-gray-600 rounded text-gray-300 text-xs font-mono">
-                    Space
-                  </kbd>
-                  <span className="text-gray-400 text-xs">Play / Pause</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <kbd className="px-2 py-1 bg-gray-800 border border-gray-600 rounded text-gray-300 text-xs font-mono">
-                    ← / →
-                  </kbd>
-                  <span className="text-gray-400 text-xs">Previous / Next Station</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <kbd className="px-2 py-1 bg-gray-800 border border-gray-600 rounded text-gray-300 text-xs font-mono">
-                    Enter
-                  </kbd>
-                  <span className="text-gray-400 text-xs">Random location of the globe</span>
-                </div>
-              </div>
-            </div>
+          {/* Keyboard shortcuts (pointer devices only) */}
+          <div className="mt-4 hidden md:block">
+            <h3 className="font-display text-2xs font-bold uppercase tracking-[0.16em] text-ivory-500">
+              Shortcuts
+            </h3>
+            <ul className="mt-2 space-y-1.5">
+              <li className="flex items-center justify-between gap-3">
+                <kbd>Space</kbd>
+                <span className="text-xs text-ivory-300">Play / pause</span>
+              </li>
+              <li className="flex items-center justify-between gap-3">
+                <span className="flex gap-1">
+                  <kbd>←</kbd>
+                  <kbd>→</kbd>
+                </span>
+                <span className="text-xs text-ivory-300">Previous / next station</span>
+              </li>
+              <li className="flex items-center justify-between gap-3">
+                <kbd>Enter</kbd>
+                <span className="text-xs text-ivory-300">Jump to a random city</span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Touch hints (mobile) */}
+          <div className="mt-4 md:hidden">
+            <h3 className="font-display text-2xs font-bold uppercase tracking-[0.16em] text-ivory-500">
+              Gestures
+            </h3>
+            <ul className="mt-2 space-y-1.5 text-xs text-ivory-300">
+              <li>Drag to spin the globe</li>
+              <li>Pinch to zoom</li>
+              <li>Tap a green dot to play that station</li>
+            </ul>
           </div>
         </div>
-      </div>
+      )}
+
+      <button
+        onClick={() => toggleOpen(!open)}
+        aria-expanded={open}
+        aria-label="About Globe Radio and shortcuts"
+        className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-veil-control text-ivory-300 shadow-panel backdrop-blur-md transition-colors duration-150 hover:bg-veil-control-hover hover:text-ivory-100 active:bg-walnut-950"
+      >
+        <svg
+          className={`h-5 w-5 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.5 8.5a3.5 3.5 0 117 0c0 1.5-1 2.5-2 3-1 .5-1.5 1-1.5 2v.5" />
+          <circle cx="12" cy="17.5" r="0.5" fill="currentColor" />
+        </svg>
+      </button>
     </div>
   );
 }

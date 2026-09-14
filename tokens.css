@@ -1,0 +1,77 @@
+/* Hallmark · component-scope (app chrome) · genre: atmospheric · theme: custom
+ * vibe: "walnut receiver, late-night dial"
+ * paper oklch(13% 0.012 260) · walnut oklch(30% 0.062 56) · accent oklch(55% 0.19 27)
+ * display: Archivo · lcd: IBM Plex Mono · body: system-ui
+ * axes: dark-paper / grotesk-sans / warm-accent
+ */
+
+:root {
+  /* ---- paper (the void behind the globe) ---- */
+  --color-paper: oklch(13% 0.012 260);
+  --color-paper-2: oklch(18% 0.015 260);
+  --vignette: radial-gradient(ellipse at center, transparent 55%, oklch(13% 0.012 260 / 0.55) 100%);
+
+  /* ---- walnut cabinet ---- */
+  --color-walnut-950: oklch(19% 0.045 50);
+  --color-walnut-900: oklch(24% 0.055 52);
+  --color-walnut-800: oklch(30% 0.062 56);
+  --color-walnut-700: oklch(36% 0.068 58);
+  --color-walnut-600: oklch(43% 0.072 60);
+
+  /* ---- ivory / chrome details ---- */
+  --color-ivory-100: oklch(93% 0.028 92);
+  --color-ivory-300: oklch(84% 0.04 88);
+  --color-ivory-500: oklch(76% 0.048 84);
+
+  /* ---- LCD readout ---- */
+  --color-lcd-bg: oklch(15% 0.015 150);
+  --color-lcd-bg-2: oklch(22% 0.02 150 / 0.6);
+  --color-lcd-readout: oklch(82% 0.135 96);
+  --color-lcd-readout-dim: oklch(72% 0.105 92);
+  --color-lcd-glow: oklch(82% 0.135 96 / 0.12);
+  --shadow-inset-lcd: inset 0 2px 8px oklch(0% 0 0 / 0.7), inset 0 -1px 0 oklch(100% 0 0 / 0.04);
+  --lcd-scanline: oklch(0% 0 0 / 0.1);
+
+  /* ---- needle-red accent ---- */
+  --color-accent: oklch(55% 0.19 27);
+  --color-accent-hover: oklch(60% 0.19 27);
+  --color-accent-press: oklch(48% 0.175 27);
+
+  /* ---- signal green ---- */
+  --color-signal: oklch(72% 0.15 152);
+
+  /* ---- error ---- */
+  --color-danger: oklch(68% 0.17 25);
+
+  /* ---- focus ---- */
+  --color-focus: oklch(82% 0.13 95);
+
+  /* ---- veils (premixed translucency; slash-opacity doesn't compose with var tokens) ---- */
+  --color-veil-chip: oklch(16% 0.018 260 / 0.85);
+  --color-veil-control: oklch(24% 0.055 52 / 0.9);
+  --color-veil-control-hover: oklch(30% 0.062 56 / 0.95);
+
+  /* ---- type ---- */
+  --font-display: 'Archivo', system-ui, sans-serif;
+  --font-lcd: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+  --font-body: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --text-2xs: 0.6875rem;
+
+  /* ---- radii ---- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  /* ---- motion ---- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 140ms;
+  --dur-med: 240ms;
+  --dur-slow: 420ms;
+
+  /* ---- shadows ---- */
+  --shadow-panel: 0 24px 48px -16px oklch(0% 0 0 / 0.65), 0 4px 12px oklch(0% 0 0 / 0.4);
+  --shadow-dock: 0 -12px 32px -12px oklch(0% 0 0 / 0.6);
+  --shadow-thumb: 0 1px 4px oklch(0% 0 0 / 0.5);
+}

@@ -1,0 +1,19 @@
+# Globe Radio
+
+> Globe Radio is a free web app that turns a 3D globe into a world-band radio tuner: spin the Earth and tune into thousands of live radio stations across every continent.
+
+Key facts:
+- [Cost]: Free, no account, no installation — runs in the browser
+- [Platforms]: Any modern browser, desktop and mobile
+- [Data source]: Radio Browser, a community database of internet radio streams
+- [Coverage]: Up to 10,000 stations with known coordinates pinned to the globe at once
+- [Maps]: MapLibre GL globe projection with MapTiler satellite imagery
+- [Shortcuts]: Space = play/pause, ← → = previous/next station, Enter = jump to a random city
+
+How it works:
+1. Spin the globe to any region
+2. Stations near the crosshair load automatically
+3. Tap any green dot to listen
+
+GitHub: https://github.com/huanglizhuo/globe-radio
+App: https://gradio.clothpath.com/

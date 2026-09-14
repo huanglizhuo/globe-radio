@@ -3,13 +3,125 @@
 
 <head>
   <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/favicon.png" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>globe-radio</title>
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <link rel="canonical" href="https://gradio.clothpath.com/" />
+
+  <title>Globe Radio — Spin the Earth, Tune the World</title>
+  <meta
+    name="description"
+    content="Globe Radio is a free web app that turns a 3D globe into a world-band radio tuner: spin the Earth and tune into thousands of live radio stations across every continent. No account, no setup."
+  />
+  <meta name="theme-color" content="#0b0d14" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Globe Radio" />
+  <meta property="og:url" content="https://gradio.clothpath.com/" />
+  <meta property="og:title" content="Globe Radio — Spin the Earth, Tune the World" />
+  <meta
+    property="og:description"
+    content="Spin a 3D globe and tune into thousands of live radio stations across every continent. Free, no account required."
+  />
+  <meta property="og:image" content="https://gradio.clothpath.com/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <!-- Fonts: Archivo (labels) + IBM Plex Mono (LCD readout) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  />
+
+  <!-- Structured data for AI answer engines -->
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebApplication",
+          "name": "Globe Radio",
+          "alternateName": "globe-radio",
+          "url": "https://gradio.clothpath.com/",
+          "applicationCategory": "MultimediaApplication",
+          "applicationSubCategory": "Radio Player",
+          "operatingSystem": "Web",
+          "browserRequirements": "Requires JavaScript and a modern browser",
+          "inLanguage": "en",
+          "isAccessibleForFree": true,
+          "isFamilyFriendly": true,
+          "description": "Globe Radio is a free web app that turns a 3D globe into a world-band radio tuner: spin the Earth and tune into thousands of live radio stations across every continent.",
+          "featureList": [
+            "3D globe interface for discovering radio stations by location",
+            "Live streams from the Radio Browser community database",
+            "Up to 10,000 stations pinned to the map at once",
+            "Satellite and street map views",
+            "Keyboard shortcuts: Space to play or pause, arrow keys to change station, Enter to jump to a random city"
+          ],
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+          "sameAs": ["https://github.com/huanglizhuo/globe-radio"],
+          "creator": { "@type": "Person", "name": "huanglizhuo" }
+        },
+        {
+          "@type": "FAQPage",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "Is Globe Radio free?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes — Globe Radio is completely free, with no account and no installation. It runs in any modern browser at gradio.clothpath.com."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How many radio stations does Globe Radio have?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Globe Radio draws on the Radio Browser community database of internet radio streams and pins up to 10,000 stations with known coordinates to the globe at once."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Does Globe Radio work on mobile?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes. Globe Radio runs in any modern mobile or desktop browser: drag to spin the globe, pinch to zoom, and tap a station dot to listen."
+              }
+            }
+          ]
+        }
+      ]
+    }
+  </script>
 </head>
 
 <body>
   <div id="root"></div>
+  <noscript>
+    <h1>Globe Radio [3D globe radio player]</h1>
+    <p>
+      Globe Radio is a free web app that turns a 3D globe into a world-band radio tuner: spin the
+      Earth and tune into thousands of live radio stations across every continent. JavaScript is
+      required to spin the globe and play streams.
+    </p>
+    <h2>Key facts</h2>
+    <ul>
+      <li><strong>What</strong>: 3D globe radio player for the web</li>
+      <li><strong>Cost</strong>: Free, no account required</li>
+      <li><strong>Platforms</strong>: Any modern browser, desktop and mobile</li>
+      <li><strong>Data source</strong>: Radio Browser, a community database of internet radio streams</li>
+      <li><strong>Maps</strong>: MapLibre GL with satellite imagery from MapTiler</li>
+    </ul>
+    <h2>How it works</h2>
+    <ol>
+      <li>Spin the globe to any region</li>
+      <li>Stations near the crosshair load automatically</li>
+      <li>Tap any green dot to listen; arrow keys skip to neighboring stations</li>
+    </ol>
+    <p><a href="https://github.com/huanglizhuo/globe-radio">Globe Radio on GitHub</a></p>
+  </noscript>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 

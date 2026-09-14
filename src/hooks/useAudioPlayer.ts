@@ -595,15 +595,6 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
     }
   }, []);
 
-  // Toggle play/pause
-  const togglePlayPause = useCallback(() => {
-    if (isPlaying) {
-      pause();
-    } else {
-      play();
-    }
-  }, [isPlaying, play, pause]);
-
   // Next station
   const next = useCallback(async () => {
     if (stations.length === 0) return;
@@ -701,6 +692,18 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
       isTuningRef.current = false;
     }
   }, [currentIndex, stations.length, pause, findValidStation, stopTuningEffect, startTuningEffect, tuningEffectEnabled]);
+
+  // Toggle play/pause — declared after next/previous so Play can fall through to "tune"
+  const togglePlayPause = useCallback(() => {
+    if (isPlaying) {
+      pause();
+    } else if (!currentStation && stations.length > 0) {
+      // No station selected yet: treat Play as "tune the first available station"
+      next();
+    } else {
+      play();
+    }
+  }, [isPlaying, play, pause, currentStation, stations.length, next]);
 
   // Auto-play when station changes
   useEffect(() => {
@@ -849,5 +852,6 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
     previous,
     selectStation,
     hasMultipleStations: stations.length > 1,
+    canTune: stations.length > 0,
   };
 }

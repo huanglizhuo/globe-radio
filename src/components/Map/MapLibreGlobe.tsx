@@ -104,6 +104,16 @@ function getRandomLocation(): [number, number] {
   return randomCity.coords as [number, number];
 }
 
+// Escape external station names before they enter popup HTML
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>(
   ({ onLocationChange, initialLocation, stations = [], currentStationUuid = null, onStationClick }, ref) => {
     const mapContainer = useRef<HTMLDivElement>(null);
@@ -191,7 +201,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         center: randomLocation,
         pitch: 0,
         bearing: 0,
-        attributionControl: false,
+        attributionControl: { compact: true }, // OSM / MapTiler attribution
         keyboard: false, // Disable keyboard navigation (arrow keys used for station switching)
       });
 
@@ -370,6 +380,18 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
           },
         });
 
+        // Invisible larger hit area over individual stations (easier taps/hover)
+        map.current.addLayer({
+          id: 'station-hit',
+          type: 'circle',
+          source: 'stations-clustered',
+          filter: ['!', ['has', 'point_count']],
+          paint: {
+            'circle-radius': 16,
+            'circle-opacity': 0,
+          },
+        });
+
         // Currently playing station (with glowing animation)
         map.current.addLayer({
           id: 'station-playing',
@@ -432,8 +454,8 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
           });
         });
 
-        // Add click handlers for individual station markers
-        map.current.on('click', 'station-markers', (e) => {
+        // Click handlers for individual station markers (use the larger invisible hit layer)
+        map.current.on('click', 'station-hit', (e) => {
           if (!e.features || e.features.length === 0 || !onStationClick) return;
 
           const feature = e.features[0];
@@ -493,17 +515,34 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
           }
         });
 
-        // Change cursor to pointer when hovering over station markers
-        map.current.on('mouseenter', 'station-markers', () => {
-          if (map.current) {
-            map.current.getCanvas().style.cursor = 'pointer';
+        // Hover tooltip + pointer cursor for station markers (via the hit layer)
+        const stationPopup = new maplibregl.Popup({
+          closeButton: false,
+          closeOnMove: true,
+          className: 'station-popup',
+          offset: 14,
+        });
+
+        map.current.on('mouseenter', 'station-hit', (e) => {
+          if (!map.current || !e.features || e.features.length === 0) return;
+          map.current.getCanvas().style.cursor = 'pointer';
+
+          const feature = e.features[0];
+          const name = feature.properties?.name;
+          const coordinates = (feature.geometry as any).coordinates;
+          if (name && coordinates) {
+            stationPopup
+              .setLngLat([coordinates[0], coordinates[1]])
+              .setHTML(`<span class="station-popup-name">${escapeHtml(String(name))}</span>`)
+              .addTo(map.current);
           }
         });
 
-        map.current.on('mouseleave', 'station-markers', () => {
+        map.current.on('mouseleave', 'station-hit', () => {
           if (map.current) {
             map.current.getCanvas().style.cursor = '';
           }
+          stationPopup.remove();
         });
 
         map.current.on('mouseenter', 'station-playing', () => {
@@ -725,9 +764,12 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
       }
     }, [stations, currentStationUuid]);
 
-    // Animate the glowing halo for playing station
+    // Animate the glowing halo for playing station (skipped under reduced motion)
     useEffect(() => {
       if (!map.current || !currentStationUuid) return;
+
+      const prefersReducedMotion =
+        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
       let animationFrameId: number;
       const startTime = Date.now();
@@ -759,7 +801,17 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
 
       // Start animation if map is loaded
       if (map.current.loaded() && map.current.getLayer('station-playing-halo')) {
-        animate();
+        if (prefersReducedMotion) {
+          // Static halo, no pulse
+          try {
+            map.current.setPaintProperty('station-playing-halo', 'circle-opacity', 0.3);
+            map.current.setPaintProperty('station-playing-halo', 'circle-radius', 20);
+          } catch {
+            // layer not ready — nothing to do
+          }
+        } else {
+          animate();
+        }
       }
 
       // Cleanup
@@ -782,17 +834,19 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
           }}
         />
 
-        {/* Satellite Toggle Button */}
+        {/* Satellite Toggle Button — icon-only on small screens, labeled on md+ */}
         <button
           onClick={() => setShowSatellite(!showSatellite)}
-          className="absolute top-28 left-0 z-10 px-4 py-2 bg-white/90 hover:bg-white shadow-lg rounded-lg transition-all flex items-center gap-2 text-sm font-medium text-gray-800"
-          aria-label="Toggle satellite view"
+          className="absolute left-0 top-[7.5rem] z-10 flex h-11 items-center gap-2 rounded-r-lg border border-l-0 border-white/10 bg-veil-control pl-3 pr-3 font-display text-sm font-semibold text-ivory-100 shadow-panel backdrop-blur-md transition-colors duration-150 hover:bg-veil-control-hover active:bg-walnut-950 md:pr-4"
+          aria-pressed={showSatellite}
+          aria-label={showSatellite ? 'Switch to map view' : 'Switch to satellite view'}
         >
           <svg
-            className="w-5 h-5"
+            className="h-5 w-5 shrink-0"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             {showSatellite ? (
               // Map icon when satellite is active
@@ -812,7 +866,9 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
               />
             )}
           </svg>
-          <span>{showSatellite ? 'Map View' : 'Satellite'}</span>
+          <span className="hidden whitespace-nowrap md:inline">
+            {showSatellite ? 'Map View' : 'Satellite'}
+          </span>
         </button>
       </div>
     );

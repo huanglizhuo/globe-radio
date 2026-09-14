@@ -5,6 +5,10 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   base: './', // Use relative paths for worker assets
+  esbuild: {
+    // Production builds drop console.log/debug chatter (errors and warnings are kept)
+    pure: ['console.log', 'console.debug'],
+  },
   build: {
     assetsDir: 'assets',
     rollupOptions: {

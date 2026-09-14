@@ -11,6 +11,7 @@ function App() {
   const mapRef = useRef<MapLibreGlobeHandle>(null);
   const [tuningEffectEnabled, setTuningEffectEnabled] = useState(false); // Default: disabled
   const [initialLocation, setInitialLocation] = useState<Coordinates | null>(null);
+  const lastSearchedCoordsRef = useRef<Coordinates | null>(null);
   const { allStations, playableStations, loading: stationsLoading, loadAllStations, searchStations } = useRadioStations();
   const {
     currentStation,
@@ -25,6 +26,7 @@ function App() {
     previous,
     selectStation,
     hasMultipleStations,
+    canTune,
   } = useAudioPlayer(playableStations, tuningEffectEnabled);
 
   // Handle station marker click
@@ -33,6 +35,7 @@ function App() {
 
     // First, search for local stations at that location
     const coordinates: Coordinates = { lat, lon };
+    lastSearchedCoordsRef.current = coordinates;
     await searchStations(coordinates);
 
     // Then try to select the clicked station (it should now be in playableStations)
@@ -46,7 +49,15 @@ function App() {
   const handleLocationChange = useCallback((lat: number, lon: number) => {
     const coordinates: Coordinates = { lat, lon };
     console.log(`🗺️ Location changed to: ${lat.toFixed(2)}°, ${lon.toFixed(2)}° - searching local stations`);
+    lastSearchedCoordsRef.current = coordinates;
     searchStations(coordinates);
+  }, [searchStations]);
+
+  // Retry the last station search (recovery affordance for the LOST SIGNAL state)
+  const handleRetrySearch = useCallback(() => {
+    if (lastSearchedCoordsRef.current) {
+      searchStations(lastSearchedCoordsRef.current);
+    }
   }, [searchStations]);
 
   // Load all stations globally on app initialization
@@ -139,7 +150,7 @@ function App() {
   }, [togglePlayPause, next, previous]);
 
   return (
-    <div className="w-screen h-screen bg-black relative overflow-hidden">
+    <div className="relative h-[100dvh] w-full overflow-hidden bg-paper">
       {/* Map fills entire screen */}
       <MapLibreGlobe
         ref={mapRef}
@@ -150,13 +161,19 @@ function App() {
         onStationClick={handleStationClick}
       />
 
-      {/* Retro Radio UI - top right */}
+      {/* Atmospheric vignette for chrome legibility */}
+      <div className="map-vignette pointer-events-none absolute inset-0 z-[5]" aria-hidden="true" />
+
+      {/* Retro Radio UI — desktop panel / mobile dock */}
       <RetroRadioUI
         currentStation={currentStation}
         isPlaying={isPlaying}
         loading={playerLoading}
         error={playerError}
         hasMultipleStations={hasMultipleStations}
+        canTune={canTune}
+        stations={playableStations}
+        onSelectStation={selectStation}
         volume={volume}
         tuningEffectEnabled={tuningEffectEnabled}
         onPlayPause={togglePlayPause}
@@ -164,23 +181,25 @@ function App() {
         onNext={next}
         onVolumeChange={setVolume}
         onToggleTuningEffect={handleToggleTuningEffect}
+        onRetry={handleRetrySearch}
       />
 
-      {/* Loading indicator */}
-      {stationsLoading && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 px-4 py-2 rounded-lg backdrop-blur-sm z-10">
-          <p className="text-white text-sm">🔍 Loading radio stations...</p>
+      {/* Unified status chip (loading / validating) */}
+      {(stationsLoading || validatingStream) && (
+        <div className="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-veil-chip px-3.5 py-1.5 shadow-panel backdrop-blur-md">
+          <span
+            className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/25"
+            style={{ borderTopColor: 'var(--color-lcd-readout)' }}
+            aria-hidden="true"
+          />
+          <span className="lcd-dim text-2xs uppercase tracking-[0.14em]">
+            {validatingStream ? 'Validating streams' : 'Searching stations'}
+          </span>
+          <span className="sr-only">Loading</span>
         </div>
       )}
 
-      {/* Validating stream indicator */}
-      {validatingStream && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 px-4 py-2 rounded-lg backdrop-blur-sm z-10">
-          <p className="text-white text-sm">🔍 Validating streams...</p>
-        </div>
-      )}
-
-      {/* Floating Info Panel */}
+      {/* Help / shortcuts popover */}
       <FloatingInfo />
     </div>
   );

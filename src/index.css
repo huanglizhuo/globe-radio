@@ -1,16 +1,312 @@
+@import '../tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+/* Hallmark · component-scope (app chrome) · genre: atmospheric · theme: custom
+ * vibe: "walnut receiver, late-night dial"
+ * axes: dark-paper / grotesk-sans / warm-accent
+ * states: default · hover · focus · active · disabled · loading · error · success(no-signal→signal)
+ * contrast: token pairs verified (lcd-readout on lcd-bg ≥ 7:1, ivory-300 on walnut-800 ≥ 4.5:1)
+ */
+
+html,
+body,
+#root {
+  height: 100%;
 }
 
 body {
-  width: 100vw;
-  height: 100vh;
+  margin: 0;
   overflow: hidden;
-  font-family: system-ui, -apple-system, sans-serif;
+  overscroll-behavior: none;
+  background: var(--color-paper);
+  color: var(--color-ivory-100);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---- focus discipline: instant, visible, never animated ---- */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ---- LCD readout ---- */
+.lcd-window {
+  position: relative;
+  background: linear-gradient(180deg, var(--color-lcd-bg-2), transparent 60%), var(--color-lcd-bg);
+  box-shadow: var(--shadow-inset-lcd);
+  overflow: hidden;
+}
+
+.lcd-window::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, var(--lcd-scanline) 0 1px, transparent 1px 3px);
+}
+
+.lcd-text {
+  font-family: var(--font-lcd);
+  color: var(--color-lcd-readout);
+  text-shadow: 0 0 10px var(--color-lcd-glow);
+  letter-spacing: 0.02em;
+}
+
+.lcd-dim {
+  font-family: var(--font-lcd);
+  color: var(--color-lcd-readout-dim);
+  letter-spacing: 0.08em;
+}
+
+.lcd-error {
+  font-family: var(--font-lcd);
+  color: var(--color-danger);
+  font-size: var(--text-2xs);
+  line-height: 1.4;
+}
+
+/* ---- vignette over the map canvas ---- */
+.map-vignette {
+  background: var(--vignette);
+}
+
+/* ---- corner screws on the cabinet ---- */
+.screw {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, var(--color-ivory-300), var(--color-walnut-600));
+  box-shadow: inset 0 -1px 1px oklch(0% 0 0 / 0.4);
+}
+
+.screw::after {
+  content: '';
+  position: absolute;
+  left: 1.5px;
+  right: 1.5px;
+  top: 50%;
+  height: 1px;
+  background: var(--color-walnut-950);
+  transform: rotate(38deg);
+}
+
+/* ---- on-air LED ---- */
+@keyframes led-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.led-on {
+  animation: led-pulse 2s var(--ease-in-out) infinite;
+}
+
+/* ---- sheet entrance (mobile station details) ---- */
+@keyframes sheet-up {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.sheet-enter {
+  animation: sheet-up var(--dur-med) var(--ease-out);
+}
+
+@keyframes sheet-down {
+  from {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.sheet-enter-down {
+  animation: sheet-down var(--dur-med) var(--ease-out);
+}
+
+/* help popover: drops down on mobile (top-right anchor), rises on md+ (bottom-left anchor) */
+.popover-enter {
+  animation: sheet-down var(--dur-med) var(--ease-out);
+}
+
+@media (min-width: 768px) {
+  .popover-enter {
+    animation: sheet-up var(--dur-med) var(--ease-out);
+  }
+}
+
+/* ---- maplibre chrome in cabinet finish ---- */
+.maplibregl-ctrl-group {
+  background: var(--color-veil-control);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid oklch(100% 0 0 / 0.1);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
+}
+
+.maplibregl-ctrl-group button {
+  background-color: transparent;
+  width: 36px;
+  height: 36px;
+}
+
+.maplibregl-ctrl-group button:hover {
+  background-color: var(--color-veil-control-hover);
+}
+
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(0.85);
+}
+
+.maplibregl-ctrl-attrib.maplibregl-compact {
+  background: var(--color-veil-control);
+  border-radius: 999px;
+}
+
+.maplibregl-ctrl-attrib a {
+  color: var(--color-ivory-500);
+}
+
+.maplibregl-ctrl-attrib-button {
+  filter: invert(0.8);
+}
+
+/* ---- volume slider ---- */
+.volume-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 24px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.volume-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--color-accent) var(--fill, 70%),
+    oklch(100% 0 0 / 0.15) var(--fill, 70%)
+  );
+}
+
+.volume-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--color-ivory-100);
+  border: 2px solid var(--color-accent);
+  box-shadow: var(--shadow-thumb);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.volume-range:hover::-webkit-slider-thumb,
+.volume-range:focus-visible::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+
+.volume-range::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--color-accent) var(--fill, 70%),
+    oklch(100% 0 0 / 0.15) var(--fill, 70%)
+  );
+}
+
+.volume-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-ivory-100);
+  border: 2px solid var(--color-accent);
+  box-shadow: var(--shadow-thumb);
+}
+
+/* ---- keyboard hints ---- */
+kbd {
+  font-family: var(--font-lcd);
+  font-size: 0.6875rem;
+  color: var(--color-ivory-300);
+  background: oklch(100% 0 0 / 0.06);
+  border: 1px solid oklch(100% 0 0 / 0.14);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+/* ---- maplibre attribution clears the mobile dock ---- */
+.maplibregl-ctrl-bottom-right,
+.maplibregl-ctrl-bottom-left {
+  z-index: 6; /* sit above the decorative vignette (z-5) */
+}
+
+@media (max-width: 767px) {
+  .maplibregl-ctrl-bottom-right,
+  .maplibregl-ctrl-bottom-left {
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ---- station hover tooltip (maplibre popup) ---- */
+.station-popup .maplibregl-popup-content {
+  background: var(--color-veil-control);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid oklch(100% 0 0 / 0.12);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  box-shadow: var(--shadow-panel);
+}
+
+.station-popup .maplibregl-popup-tip {
+  display: none; /* arrowless glass card */
+}
+
+.station-popup .station-popup-name {
+  font-family: var(--font-lcd);
+  color: var(--color-lcd-readout);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* ---- reduced motion: decorative motion collapses, essential feedback stays ---- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
