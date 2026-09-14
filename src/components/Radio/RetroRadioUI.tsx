@@ -1,8 +1,18 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { RadioStation } from '../../types';
+import type { RadioPreset } from '../../utils/presets';
+import { getLocalTimeInfo, type LocalTimeInfo } from '../../utils/solarTime';
 import { StationInfo, stableFrequency } from './StationInfo';
 import { StationList } from './StationList';
 import { PlayerControls } from './PlayerControls';
+import { PresetButtons } from './PresetButtons';
+import { TuningDial } from './TuningDial';
+import { SignalMeter } from './SignalMeter';
+import { SleepTimerControl } from './SleepTimerControl';
+import { WorldTourToggle } from '../UI/WorldTourToggle';
+import { TuningStaticToggle } from '../UI/TuningStaticToggle';
+
+type SignalQuality = 'strong' | 'weak' | 'none';
 
 interface RetroRadioUIProps {
   currentStation: RadioStation | null;
@@ -21,6 +31,20 @@ interface RetroRadioUIProps {
   onToggleTuningEffect: () => void;
   onRetry: () => void;
   onSelectStation: (stationUuid: string) => void;
+  /* ---- Optional extensions (wired by App; all safe to omit) ---- */
+  signal?: SignalQuality;
+  hasRealtimeLevels?: boolean;
+  getLevels?: () => number[] | null;
+  sleepMinutes?: number | null;
+  sleepRemainingSec?: number | null;
+  onSetSleepTimer?: (minutes: number | null) => void;
+  presets?: RadioPreset[];
+  onPresetActivate?: (slot: number) => void;
+  onPresetSave?: (slot: number) => void;
+  worldTourActive?: boolean;
+  onToggleWorldTour?: () => void;
+  onOpenPassport?: () => void;
+  passportCountryCount?: number;
 }
 
 function GitHubLink({ className = '' }: { className?: string }) {
@@ -68,6 +92,154 @@ function VolumeRow({
   );
 }
 
+/** LCD corner row: local solar time at the station + signal strength. */
+function LcdStatusRow({
+  localTime,
+  signal,
+}: {
+  localTime: LocalTimeInfo | null;
+  signal: SignalQuality;
+}) {
+  return (
+    <div className="mt-2 flex items-end justify-between gap-2">
+      {localTime ? (
+        <span className="lcd-dim text-2xs" title={localTime.phase}>
+          <span aria-hidden="true">{localTime.phaseIcon}</span> {localTime.label}
+        </span>
+      ) : (
+        <span aria-hidden="true" />
+      )}
+      <SignalMeter signal={signal} />
+    </div>
+  );
+}
+
+const GRILL_DOTS = 36;
+const GRILL_DOT_CLASSES = ['bg-walnut-700', 'bg-walnut-800', 'bg-walnut-900'] as const;
+
+/**
+ * Speaker grill that doubles as an equalizer while playing. Dots are driven
+ * via refs inside one rAF loop — no per-frame React renders. Falls back to a
+ * synthetic wave when the analyser is unavailable, and stays static when
+ * reduced motion is preferred.
+ */
+function GrillEQ({ isPlaying, getLevels }: { isPlaying: boolean; getLevels?: () => number[] | null }) {
+  const dotRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  useEffect(() => {
+    const dots = dotRefs.current.filter((el): el is HTMLDivElement => el !== null);
+    const restore = () => {
+      for (const dot of dots) {
+        dot.style.opacity = '';
+        dot.style.backgroundColor = '';
+      }
+    };
+
+    // The grill only exists in the desktop panel; on mobile the loop would
+    // spin invisibly. Re-evaluates whenever the play state changes.
+    const desktop = window.matchMedia('(min-width: 768px)').matches;
+    if (
+      !isPlaying ||
+      !desktop ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      restore();
+      return;
+    }
+
+    let raf = 0;
+    const tick = (t: number) => {
+      const levels = getLevels?.() ?? null;
+      for (let i = 0; i < dots.length; i++) {
+        const intensity =
+          levels !== null
+            ? // Realtime band level with a per-dot shimmer so the grill breathes.
+              Math.min(
+                1,
+                Math.max(
+                  0,
+                  (levels[Math.floor((i / GRILL_DOTS) * levels.length)] ?? 0) * 0.85 +
+                    0.15 * Math.sin(t / 450 + i * 1.7),
+                ),
+              )
+            : // Synthetic idle groove.
+              Math.min(
+                1,
+                Math.max(0, 0.3 + 0.25 * Math.sin(t / 700 + i * 0.9) + 0.2 * Math.sin(t / 1300 + i * 2.3)),
+              );
+        dots[i].style.opacity = String(0.35 + 0.65 * intensity);
+        dots[i].style.backgroundColor = intensity > 0.55 ? 'var(--color-signal)' : '';
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      restore();
+    };
+  }, [isPlaying, getLevels]);
+
+  return (
+    <div className="mb-3 rounded-lg bg-gradient-to-b from-walnut-950 to-walnut-900 p-2.5" aria-hidden="true">
+      <div className="grid grid-cols-12 gap-1">
+        {Array.from({ length: GRILL_DOTS }).map((_, i) => (
+          <div
+            key={i}
+            ref={(el) => {
+              dotRefs.current[i] = el;
+            }}
+            className={`h-2 w-2 rounded-full ${GRILL_DOT_CLASSES[i % 3]}`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Passport key with a country-count badge; opens the passport dialog. */
+function PassportButton({
+  countryCount,
+  onOpen,
+}: {
+  countryCount?: number;
+  onOpen?: () => void;
+}) {
+  const count = countryCount != null && countryCount > 0 ? countryCount : 0;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={count > 0 ? `Open listening passport, ${count} countries` : 'Open listening passport'}
+      className="relative flex h-10 shrink-0 select-none items-center gap-1.5 rounded-lg bg-walnut-700 px-3 text-ivory-300 transition-[background-color,transform,color] duration-150 hover:bg-walnut-600 hover:text-ivory-100 active:translate-y-px active:bg-walnut-950"
+    >
+      <svg
+        className="h-4 w-4 shrink-0"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 3l7 4v5c0 4.4-3 7.9-7 9-4-1.1-7-4.6-7-9V7l7-4z"
+        />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.5 12l1.8 1.8 3.2-3.6" />
+      </svg>
+      <span className="font-display text-2xs font-bold uppercase tracking-[0.14em]">Passport</span>
+      {count > 0 && (
+        <span
+          aria-hidden="true"
+          className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 font-display text-2xs font-bold leading-none text-white"
+        >
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
 export function RetroRadioUI({
   currentStation,
   isPlaying,
@@ -77,13 +249,27 @@ export function RetroRadioUI({
   canTune,
   stations,
   volume,
-  // tuningEffectEnabled / onToggleTuningEffect reserved — toggle hidden for now
+  tuningEffectEnabled,
   onPlayPause,
   onPrevious,
   onNext,
   onVolumeChange,
+  onToggleTuningEffect,
   onRetry,
   onSelectStation,
+  signal = 'none',
+  hasRealtimeLevels,
+  getLevels,
+  sleepMinutes = null,
+  sleepRemainingSec = null,
+  onSetSleepTimer,
+  presets,
+  onPresetActivate,
+  onPresetSave,
+  worldTourActive = false,
+  onToggleWorldTour,
+  onOpenPassport,
+  passportCountryCount,
 }: RetroRadioUIProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -104,7 +290,23 @@ export function RetroRadioUI({
     return () => window.removeEventListener('gr:close-station-sheet', onClose);
   }, []);
 
+  // Approximate local time at the tuned location, refreshed every 30s.
+  const stationLat = currentStation?.geo_lat ?? null;
+  const stationLon = currentStation?.geo_long ?? null;
+  const [localTime, setLocalTime] = useState<LocalTimeInfo | null>(null);
+  useEffect(() => {
+    if (stationLat == null || stationLon == null) {
+      setLocalTime(null);
+      return;
+    }
+    const compute = () => setLocalTime(getLocalTimeInfo(stationLat, stationLon));
+    compute();
+    const id = window.setInterval(compute, 30_000);
+    return () => window.clearInterval(id);
+  }, [stationLat, stationLon]);
+
   const freq = currentStation ? stableFrequency(currentStation.stationuuid) : null;
+  const freqNum = freq != null ? parseFloat(freq) : null;
   const status = loading
     ? 'TUNING'
     : error
@@ -116,6 +318,46 @@ export function RetroRadioUI({
           : 'STATIC';
   // Play is only a dead end when there is genuinely nothing to tune
   const playDisabled = loading || (!currentStation && !canTune);
+
+  // Tuning the dial snaps to whichever station is nearest on the FM band
+  // (first one wins a tie) and selects it through the existing path.
+  const handleTune = (targetFreq: number) => {
+    let bestIndex = -1;
+    let bestDistance = Infinity;
+    stations.forEach((station, index) => {
+      const distance = Math.abs(parseFloat(stableFrequency(station.stationuuid)) - targetFreq);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    });
+    if (bestIndex >= 0) onSelectStation(stations[bestIndex].stationuuid);
+  };
+
+  const stationMarkers = stations.map((station) => parseFloat(stableFrequency(station.stationuuid)));
+
+  const settingsRow = (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      <WorldTourToggle active={worldTourActive} onToggle={onToggleWorldTour} />
+      <TuningStaticToggle enabled={tuningEffectEnabled} onToggle={onToggleTuningEffect} />
+      <SleepTimerControl
+        minutes={sleepMinutes}
+        remainingSec={sleepRemainingSec}
+        onChange={onSetSleepTimer}
+      />
+      <PassportButton countryCount={passportCountryCount} onOpen={onOpenPassport} />
+    </div>
+  );
+
+  const presetsRow = (
+    <div className="mt-3">
+      <PresetButtons
+        presets={presets}
+        onSlotActivate={onPresetActivate}
+        onSlotSave={onPresetSave}
+      />
+    </div>
+  );
 
   return (
     <>
@@ -129,82 +371,90 @@ export function RetroRadioUI({
         <span className="screw bottom-2 left-2" aria-hidden="true" />
         <span className="screw bottom-2 right-2" aria-hidden="true" />
 
-        {/* Brand plate */}
-        <div className="mb-3 flex items-center justify-between">
-          <span className="font-display text-xs font-extrabold uppercase tracking-[0.24em] text-ivory-300">
-            Globe Radio
-          </span>
-          <div className="flex items-center gap-3">
-            <span
-              className={`h-2 w-2 rounded-full ${isPlaying ? 'led-on bg-signal' : 'bg-white/15'}`}
-              title={isPlaying ? 'On air' : 'Idle'}
-              aria-hidden="true"
-            />
-            <GitHubLink />
-          </div>
-        </div>
-
-        {/* Speaker grill */}
-        <div className="mb-3 rounded-lg bg-gradient-to-b from-walnut-950 to-walnut-900 p-2.5" aria-hidden="true">
-          <div className="grid grid-cols-12 gap-1">
-            {Array.from({ length: 36 }).map((_, i) => (
-              <div
-                key={i}
-                className={`h-2 w-2 rounded-full ${
-                  i % 3 === 0 ? 'bg-walnut-700' : i % 3 === 1 ? 'bg-walnut-800' : 'bg-walnut-900'
-                }`}
+        <div className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+          {/* Brand plate */}
+          <div className="mb-3 flex items-center justify-between">
+            <span className="font-display text-xs font-extrabold uppercase tracking-[0.24em] text-ivory-300">
+              Globe Radio
+            </span>
+            <div className="flex items-center gap-3">
+              <span
+                className={`h-2 w-2 rounded-full ${isPlaying ? 'led-on bg-signal' : 'bg-white/15'}`}
+                title={isPlaying ? 'On air' : 'Idle'}
+                aria-hidden="true"
               />
-            ))}
+              <GitHubLink />
+            </div>
           </div>
-        </div>
 
-        {/* LCD readout */}
-        <div
-          className="lcd-window mb-3 rounded-lg border border-walnut-950 px-3 py-2.5"
-          role="status"
-          aria-live="polite"
-        >
-          <StationInfo station={currentStation} loading={loading} variant="panel" />
-          {error && (
-            <div className="mt-2 flex items-center justify-center gap-3">
-              <p className="lcd-error text-center">⚠ {error}</p>
-              <button
-                onClick={onRetry}
-                className="shrink-0 rounded-md border border-ivory-500/40 px-3 py-1.5 font-display text-2xs font-bold uppercase tracking-[0.14em] text-ivory-300 transition-colors duration-150 hover:bg-white/10 hover:text-ivory-100 active:bg-white/15"
-              >
-                Retry
-              </button>
+          {/* Speaker grill / equalizer */}
+          <GrillEQ isPlaying={isPlaying} getLevels={hasRealtimeLevels === false ? undefined : getLevels} />
+
+          {/* LCD readout */}
+          <div
+            className="lcd-window mb-3 rounded-lg border border-walnut-950 px-3 py-2.5"
+            role="status"
+            aria-live="polite"
+          >
+            <StationInfo station={currentStation} loading={loading} variant="panel" />
+            {error && (
+              <div className="mt-2 flex items-center justify-center gap-3">
+                <p className="lcd-error text-center">⚠ {error}</p>
+                <button
+                  onClick={onRetry}
+                  className="shrink-0 rounded-md border border-ivory-500/40 px-3 py-1.5 font-display text-2xs font-bold uppercase tracking-[0.14em] text-ivory-300 transition-colors duration-150 hover:bg-white/10 hover:text-ivory-100 active:bg-white/15"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            <LcdStatusRow localTime={localTime} signal={signal} />
+          </div>
+
+          {/* Tuning dial */}
+          <div className="mb-3">
+            <TuningDial
+              frequency={freqNum}
+              markers={stationMarkers}
+              disabled={!currentStation}
+              onTune={handleTune}
+            />
+          </div>
+
+          {/* Controls */}
+          <div className="rounded-lg bg-gradient-to-b from-walnut-950 to-black/60 p-3">
+            <PlayerControls
+              isPlaying={isPlaying}
+              loading={loading}
+              hasMultipleStations={hasMultipleStations}
+              playDisabled={playDisabled}
+              onPlayPause={onPlayPause}
+              onPrevious={onPrevious}
+              onNext={onNext}
+              volume={volume}
+              onVolumeChange={onVolumeChange}
+              size="lg"
+              showVolume
+            />
+          </div>
+
+          {/* Preset keys */}
+          {presetsRow}
+
+          {/* Settings keys */}
+          {settingsRow}
+
+          {/* Keyboard/screen-reader path to station selection */}
+          {stations.length > 0 && (
+            <div className="mt-3">
+              <StationList
+                stations={stations}
+                currentStationUuid={currentStation?.stationuuid ?? null}
+                onSelect={onSelectStation}
+              />
             </div>
           )}
         </div>
-
-        {/* Controls */}
-        <div className="rounded-lg bg-gradient-to-b from-walnut-950 to-black/60 p-3">
-          <PlayerControls
-            isPlaying={isPlaying}
-            loading={loading}
-            hasMultipleStations={hasMultipleStations}
-            playDisabled={playDisabled}
-            onPlayPause={onPlayPause}
-            onPrevious={onPrevious}
-            onNext={onNext}
-            volume={volume}
-            onVolumeChange={onVolumeChange}
-            size="lg"
-            showVolume
-          />
-        </div>
-
-        {/* Keyboard/screen-reader path to station selection */}
-        {stations.length > 0 && (
-          <div className="mt-3">
-            <StationList
-              stations={stations}
-              currentStationUuid={currentStation?.stationuuid ?? null}
-              onSelect={onSelectStation}
-            />
-          </div>
-        )}
       </aside>
 
       {/* ============ Mobile: bottom dock + expandable sheet ============ */}
@@ -236,9 +486,26 @@ export function RetroRadioUI({
                     </button>
                   </div>
                 )}
+                <LcdStatusRow localTime={localTime} signal={signal} />
+              </div>
+
+              {/* Tuning dial */}
+              <div className="mb-3">
+                <TuningDial
+                  frequency={freqNum}
+                  markers={stationMarkers}
+                  disabled={!currentStation}
+                  onTune={handleTune}
+                />
               </div>
 
               <VolumeRow volume={volume} onVolumeChange={onVolumeChange} />
+
+              {/* Preset keys */}
+              {presetsRow}
+
+              {/* Settings keys */}
+              {settingsRow}
 
               {/* Keyboard/screen-reader path to station selection */}
               <div className="mt-3">

@@ -9,10 +9,13 @@ interface MapLibreGlobeProps {
   stations?: RadioStation[];
   currentStationUuid?: string | null;
   onStationClick?: (stationUuid: string, lat: number, lon: number) => void;
+  /** Fires when the user starts dragging/rotating the globe (not programmatic moves). */
+  onUserInteractionStart?: () => void;
 }
 
 export interface MapLibreGlobeHandle {
   jumpToRandomLocation: () => void;
+  flyToLocation: (lat: number, lon: number, zoom?: number) => void;
 }
 
 // MapTiler API Key - Free tier: 100,000 requests/month
@@ -115,7 +118,7 @@ function escapeHtml(text: string): string {
 }
 
 export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>(
-  ({ onLocationChange, initialLocation, stations = [], currentStationUuid = null, onStationClick }, ref) => {
+  ({ onLocationChange, initialLocation, stations = [], currentStationUuid = null, onStationClick, onUserInteractionStart }, ref) => {
     const mapContainer = useRef<HTMLDivElement>(null);
     const map = useRef<maplibregl.Map | null>(null);
     const moveEndTimerRef = useRef<number | undefined>(undefined);
@@ -123,6 +126,12 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
     const lastLocationRef = useRef<{ lat: number; lng: number } | null>(null);
     const isUserInteractionRef = useRef(false);
     const hasInitialLocationFiredRef = useRef(false);
+    // Latest interaction callback without re-initializing the map when it changes
+    const onUserInteractionStartRef = useRef<(() => void) | undefined>(onUserInteractionStart);
+
+    useEffect(() => {
+      onUserInteractionStartRef.current = onUserInteractionStart;
+    }, [onUserInteractionStart]);
 
     // Store initial location in a ref to use across callbacks
     // Use provided initialLocation or fallback to random location
@@ -154,6 +163,19 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
           center: [newLocation[0], newLocation[1]],
           duration: 2000, // 2 second animation
           essential: true // This animation is considered essential with respect to prefers-reduced-motion
+        });
+      },
+      flyToLocation: (lat: number, lon: number, zoom?: number) => {
+        if (!map.current) {
+          console.warn('⚠️ Map not initialized yet, cannot fly to location');
+          return;
+        }
+
+        map.current.flyTo({
+          center: [lon, lat],
+          zoom: zoom ?? Math.max(map.current.getZoom(), 3),
+          duration: 1500,
+          essential: true,
         });
       }
     }), []); // Empty deps array - ref methods don't need to change
@@ -232,6 +254,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
       // Track user interactions
       map.current.on('dragstart', () => {
         isUserInteractionRef.current = true;
+        onUserInteractionStartRef.current?.();
       });
 
       map.current.on('dragend', () => {
@@ -248,6 +271,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
 
       map.current.on('rotatestart', () => {
         isUserInteractionRef.current = true;
+        onUserInteractionStartRef.current?.();
       });
 
       map.current.on('rotateend', () => {

@@ -4,6 +4,16 @@ import type { RadioStation } from '../types';
 import { RadioBrowserAPI } from '../services/radioBrowserAPI';
 import { useRadioTuningEffect } from './useRadioTuningEffect';
 
+// Web Audio graph for realtime frequency levels. Bound to a single audio
+// element: createMediaElementSource() can only be called once per element and
+// permanently routes that element's output through the context.
+interface AnalyserEntry {
+  ctx: AudioContext;
+  source: MediaElementAudioSourceNode;
+  analyser: AnalyserNode;
+  element: HTMLAudioElement;
+}
+
 export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: boolean = true) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -11,6 +21,14 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
   const [error, setError] = useState<string | null>(null);
   const [volume, setVolume] = useState(0.7);
   const [validatingStream, setValidatingStream] = useState(false);
+  // Signal strength for the current station (mapping documented at the
+  // derivation effect below)
+  const [signal, setSignal] = useState<'strong' | 'weak' | 'none'>('none');
+  // True when the realtime-levels analyser is active for the current element+station
+  const [hasRealtimeLevels, setHasRealtimeLevels] = useState(false);
+  // Sleep timer: configured minutes (null = off) and live countdown seconds
+  const [sleepMinutes, setSleepMinutes] = useState<number | null>(null);
+  const [sleepRemainingSec, setSleepRemainingSec] = useState<number | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -21,6 +39,42 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
   const isValidatingRef = useRef(false); // Prevent concurrent validations
   const isTuningRef = useRef(false); // Track if tuning effect is playing
   const autoSkipPendingRef = useRef(false); // Track if auto-skip is already pending
+  // Uuid the user explicitly chose (deep link / map click / preset recall).
+  // The auto-tune validation must not override an explicit selection.
+  const explicitSelectionRef = useRef<string | null>(null);
+
+  // Realtime levels (Web Audio analyser) - see getLevels below
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserEntry | null>(null);
+  const analyserActiveRef = useRef(false); // Analyser applies to the current station
+  const corsProbeActiveRef = useRef(false); // crossOrigin='anonymous' probe in flight
+  const corsFailedStationsRef = useRef<Set<string>>(new Set()); // Stations that failed the CORS probe
+  const currentStationRef = useRef<RadioStation | null>(null); // Latest station for element handlers
+  const volumeRef = useRef(volume); // Latest volume state (avoids stale closures)
+  // Sleep timer internals
+  const sleepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sleepRampIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sleepRemainingRef = useRef<number | null>(null);
+  const sleepFiredRef = useRef(false); // Guard against double-firing the timer
+
+  // Latest copies of the core callbacks for long-lived registrations (Media
+  // Session action handlers, CORS-probe recovery) so they never fire stale
+  // closures. Refreshed on every render by the effect next to `previous`.
+  const latestRef = useRef<{
+    play: () => Promise<void>;
+    pause: () => void;
+    next: () => Promise<void>;
+    previous: () => Promise<void>;
+    recreateAudioElement: () => HTMLAudioElement;
+  }>({
+    play: async () => {},
+    pause: () => {},
+    next: async () => {},
+    previous: async () => {},
+    recreateAudioElement: () => {
+      throw new Error('useAudioPlayer: audio element not initialized');
+    },
+  });
 
   const currentStation = stations[currentIndex] || null;
 
@@ -53,15 +107,88 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
     }, stepDuration);
   }, []);
 
-  // Initialize audio element
-  useEffect(() => {
-    const audio = new Audio();
-    audio.volume = volume;
-    audio.preload = 'none'; // Don't preload to save bandwidth
-    // Don't set crossOrigin by default - will be set per stream if needed
+  // Get (or lazily create) the shared AudioContext used for realtime levels.
+  // Must be called within a user-gesture chain (e.g. from play()).
+  const ensureAudioContext = useCallback((): AudioContext | null => {
+    if (!audioCtxRef.current) {
+      const win = window as Window & { webkitAudioContext?: typeof AudioContext };
+      const Ctor = window.AudioContext || win.webkitAudioContext;
+      if (!Ctor) return null;
+      audioCtxRef.current = new Ctor();
+    }
+    if (audioCtxRef.current.state === 'suspended') {
+      void audioCtxRef.current.resume().catch(() => {});
+    }
+    return audioCtxRef.current;
+  }, []);
 
+  // Tear down the analyser graph (bound to a single element). The shared
+  // AudioContext stays alive for reuse by the next element.
+  const disconnectAnalyser = useCallback(() => {
+    const entry = analyserRef.current;
+    analyserRef.current = null;
+    analyserActiveRef.current = false;
+    setHasRealtimeLevels(false);
+    if (entry) {
+      try { entry.source.disconnect(); } catch { /* ignore */ }
+      try { entry.analyser.disconnect(); } catch { /* ignore */ }
+    }
+  }, []);
+
+  // Attach (or reuse) the analyser graph for an element whose current stream
+  // loaded successfully WITH crossOrigin='anonymous'. One MediaElementSource
+  // per element lifetime - never call this for HLS or non-CORS loads, their
+  // output through the graph would be silent.
+  const attachAnalyserToElement = useCallback((audio: HTMLAudioElement) => {
+    try {
+      const ctx = ensureAudioContext();
+      if (!ctx) return;
+      if (!analyserRef.current || analyserRef.current.element !== audio) {
+        disconnectAnalyser();
+        const source = ctx.createMediaElementSource(audio);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 128;
+        source.connect(analyser);
+        analyser.connect(ctx.destination); // unity-gain passthrough
+        analyserRef.current = { ctx, source, analyser, element: audio };
+      }
+      analyserActiveRef.current = true;
+      setHasRealtimeLevels(true);
+    } catch (err) {
+      // Realtime levels are a bonus feature - never let them break playback.
+      console.warn('Failed to attach realtime levels analyser:', err);
+      disconnectAnalyser();
+    }
+  }, [ensureAudioContext, disconnectAnalyser]);
+
+  // Wire all event handlers on an audio element. Shared by the initial-creation
+  // effect and recreateAudioElement() (CORS-failure recovery) so every element
+  // behaves identically.
+  const attachAudioHandlers = useCallback((audio: HTMLAudioElement) => {
     // Error handling
     audio.onerror = () => {
+      // Realtime-levels CORS recovery: this load attempted
+      // crossOrigin='anonymous' (analyser probe) and failed with a network/src
+      // error before canplay. Retry once on a fresh element WITHOUT
+      // crossOrigin, and cache the failure per stationuuid so this station is
+      // never probed (or retried) again - the cache prevents any retry loop.
+      if (corsProbeActiveRef.current && audio === audioRef.current) {
+        corsProbeActiveRef.current = false;
+        const code = audio.error?.code;
+        const probeFailed =
+          code === MediaError.MEDIA_ERR_NETWORK ||
+          code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED;
+        const station = currentStationRef.current;
+        if (probeFailed && station) {
+          corsFailedStationsRef.current.add(station.stationuuid);
+          console.warn(`Realtime levels unavailable for "${station.name}" (CORS) - retrying without crossOrigin`);
+          latestRef.current.recreateAudioElement();
+          setLoading(false);
+          void latestRef.current.play();
+          return; // Skip normal error handling for this attempt
+        }
+      }
+
       const error = audio.error;
       let errorMessage = 'Failed to load station';
       let isCorsError = false;
@@ -111,6 +238,13 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
     audio.oncanplay = async () => {
       setLoading(false);
 
+      // The CORS probe succeeded (stream loaded with crossOrigin='anonymous'):
+      // it is now safe to route this element through Web Audio for levels.
+      if (corsProbeActiveRef.current) {
+        corsProbeActiveRef.current = false;
+        attachAnalyserToElement(audio);
+      }
+
       // Stop tuning effect when station is ready to play (only if enabled)
       if (tuningEffectEnabled && isTuning()) {
         console.log('📻 Station ready, stopping tuning effect...');
@@ -131,6 +265,21 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
       setError(null);
       // Reset auto-skip counter on successful play
       maxAutoSkipAttemptsRef.current = 0;
+
+      // Media Session: update lock-screen / OS metadata when playback starts
+      if ('mediaSession' in navigator && currentStationRef.current) {
+        const station = currentStationRef.current;
+        try {
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title: station.name,
+            artist: station.country || 'Unknown country',
+            album: 'Globe Radio',
+            artwork: [{ src: '/icon-512.png', sizes: '512x512', type: 'image/png' }],
+          });
+        } catch {
+          // MediaMetadata not available in this browser
+        }
+      }
     };
 
     audio.onpause = () => {
@@ -139,18 +288,103 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
 
     audio.onwaiting = () => {
       setLoading(true);
+      setSignal('weak');
     };
 
     audio.onplaying = () => {
       setLoading(false);
       setError(null);
+      setSignal('strong');
+      // The element's output is routed through this AudioContext while the
+      // analyser is attached; a suspended context would mean silence.
+      const entry = analyserRef.current;
+      if (entry && entry.element === audio && entry.ctx.state === 'suspended') {
+        void entry.ctx.resume().catch(() => {});
+      }
+    };
+
+    // The media clock is advancing -> strong signal. Fires several times per
+    // second while playing; setting the same value is a React no-op.
+    audio.ontimeupdate = () => {
+      if (!audio.paused) {
+        setSignal('strong');
+      }
     };
 
     // Handle stalled streams
     audio.onstalled = () => {
       console.warn('Stream stalled, attempting to recover...');
       setLoading(true);
+      setSignal('weak');
     };
+  }, [isTuning, stopTuningEffect, fadeInVolume, volume, attachAnalyserToElement]);
+
+  // Replace the current audio element with a fresh one. Used when a
+  // Web-Audio-routed element must load a non-CORS stream: the routing cannot be
+  // undone per element, and a non-CORS resource through a MediaElementSource
+  // is silent, so the only safe recovery is a clean element.
+  const recreateAudioElement = useCallback((): HTMLAudioElement => {
+    const old = audioRef.current;
+    disconnectAnalyser();
+    if (old) {
+      // Silence the discarded element's handlers so its teardown events
+      // (pause/emptied/error triggered by clearing src) cannot affect state.
+      old.onerror = null;
+      old.onloadstart = null;
+      old.oncanplay = null;
+      old.onplay = null;
+      old.onpause = null;
+      old.onwaiting = null;
+      old.onplaying = null;
+      old.ontimeupdate = null;
+      old.onstalled = null;
+      try {
+        old.pause();
+        old.src = '';
+      } catch {
+        // Ignore errors during cleanup
+      }
+    }
+    const audio = new Audio();
+    audio.volume = volume;
+    audio.preload = 'none'; // Don't preload to save bandwidth
+    // Don't set crossOrigin by default - will be set per stream if needed
+    attachAudioHandlers(audio);
+    audioRef.current = audio;
+    return audio;
+  }, [attachAudioHandlers, disconnectAnalyser, volume]);
+
+  // Initialize audio element
+  useEffect(() => {
+    const audio = new Audio();
+    audio.volume = volume;
+    audio.preload = 'none'; // Don't preload to save bandwidth
+    // Don't set crossOrigin by default - will be set per stream if needed
+
+    attachAudioHandlers(audio);
+
+    // Fresh element: drop any analyser graph bound to a previous element and
+    // invalidate any in-flight CORS probe.
+    disconnectAnalyser();
+    corsProbeActiveRef.current = false;
+
+    // Media Session: OS / lock-screen media controls. Registered once per
+    // element lifetime; the handlers read the latest callbacks via latestRef
+    // so they never fire stale closures.
+    if ('mediaSession' in navigator) {
+      const ms = navigator.mediaSession;
+      const safeSetHandler = (action: MediaSessionAction, handler: (() => void) | null) => {
+        try {
+          ms.setActionHandler(action, handler);
+        } catch {
+          // Action not supported in this browser
+        }
+      };
+      safeSetHandler('play', () => { void latestRef.current.play(); });
+      safeSetHandler('pause', () => { latestRef.current.pause(); });
+      safeSetHandler('previoustrack', () => { void latestRef.current.previous(); });
+      safeSetHandler('nexttrack', () => { void latestRef.current.next(); });
+    }
 
     audioRef.current = audio;
 
@@ -166,15 +400,57 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
         audioRef.current.src = '';
         audioRef.current = null;
       }
+      // Clean up Media Session handlers
+      if ('mediaSession' in navigator) {
+        const actions: MediaSessionAction[] = ['play', 'pause', 'previoustrack', 'nexttrack'];
+        for (const action of actions) {
+          try {
+            navigator.mediaSession.setActionHandler(action, null);
+          } catch {
+            // Ignore
+          }
+        }
+      }
     };
-  }, [isTuning, stopTuningEffect, fadeInVolume, volume]);
+  }, [isTuning, stopTuningEffect, fadeInVolume, volume, attachAudioHandlers, disconnectAnalyser]);
 
   // Update volume
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = volume;
     }
+    volumeRef.current = volume;
   }, [volume]);
+
+  // Mirror the current station for handlers wired long-lived onto the audio
+  // element (media session metadata, CORS failure cache)
+  useEffect(() => {
+    currentStationRef.current = currentStation;
+  }, [currentStation]);
+
+  // Reflect play state to OS media controls
+  useEffect(() => {
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+    }
+  }, [isPlaying]);
+
+  // Signal strength mapping:
+  // - 'strong': playing and the audio clock is advancing (set by the
+  //   'playing'/'timeupdate' handlers above)
+  // - 'weak':   loading or validating a stream ('waiting'/'stalled' also map
+  //   here since they set loading)
+  // - 'none':   no station selected, or paused and not loading/validating
+  useEffect(() => {
+    if (!currentStation) {
+      setSignal('none');
+    } else if (loading || validatingStream) {
+      setSignal('weak');
+    } else if (!isPlaying) {
+      setSignal('none');
+    }
+    // Playing and not loading: keep the event-driven value ('strong')
+  }, [currentStation, loading, validatingStream, isPlaying]);
 
   // Validate stream before displaying station
   const validateStream = useCallback(async (station: RadioStation): Promise<boolean> => {
@@ -355,7 +631,13 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
       setLoading(true);
       setError(null);
 
-      const audio = audioRef.current;
+      // Per-attempt analyser state: realtime levels are only reported once the
+      // current load's crossOrigin probe has succeeded (see oncanplay).
+      corsProbeActiveRef.current = false;
+      analyserActiveRef.current = false;
+      setHasRealtimeLevels(false);
+
+      let audio = audioRef.current;
 
       // Stop current playback first
       audio.pause();
@@ -399,6 +681,15 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
 
       // Check if it's an HLS stream (m3u8)
       const isHLS = streamUrl.includes('.m3u8') || streamUrl.includes('m3u8');
+
+      // HLS never gets the analyser (hls.js segment CORS varies). If this
+      // element is routed through Web Audio from a previous direct-stream
+      // probe, replace it first: Safari-native HLS and the HLS fallbacks load
+      // non-CORS URLs directly, which would be silent through a
+      // MediaElementSource.
+      if (analyserRef.current?.element === audio) {
+        audio = recreateAudioElement();
+      }
 
       if (isHLS && Hls.isSupported()) {
         // Use HLS.js for m3u8 streams
@@ -551,7 +842,22 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
       } else {
         // Regular stream (MP3, AAC, etc.)
         console.log('Using regular audio playback');
-        audio.removeAttribute('crossOrigin'); // Remove crossOrigin to avoid CORS issues
+        // Realtime-levels CORS probe: load with crossOrigin='anonymous' so the
+        // element can safely be routed through Web Audio for frequency data.
+        // Stations that failed the probe before are loaded without it (no
+        // realtime levels for them).
+        if (corsFailedStationsRef.current.has(currentStation.stationuuid)) {
+          if (analyserRef.current?.element === audio) {
+            // A Web-Audio-routed element loading a non-CORS stream would be
+            // silent: swap in a fresh, unrouted element before loading.
+            audio = recreateAudioElement();
+          }
+          audio.removeAttribute('crossOrigin'); // Remove crossOrigin to avoid CORS issues
+        } else {
+          ensureAudioContext(); // create/resume within the user-gesture chain
+          audio.crossOrigin = 'anonymous';
+          corsProbeActiveRef.current = true;
+        }
         audio.src = streamUrl;
         audio.load();
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -586,7 +892,7 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
       setIsPlaying(false);
       setLoading(false);
     }
-  }, [currentStation, volume, isTuning, startTuningEffect, tuningEffectEnabled]);
+  }, [currentStation, volume, isTuning, startTuningEffect, tuningEffectEnabled, recreateAudioElement, ensureAudioContext]);
 
   // Pause station
   const pause = useCallback(() => {
@@ -692,6 +998,98 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
       isTuningRef.current = false;
     }
   }, [currentIndex, stations.length, pause, findValidStation, stopTuningEffect, startTuningEffect, tuningEffectEnabled]);
+
+  // Keep the latest callbacks available to long-lived registrations (Media
+  // Session handlers, CORS-probe recovery) - runs on every render.
+  useEffect(() => {
+    latestRef.current = { play, pause, next, previous, recreateAudioElement };
+  });
+
+  // ---- Sleep timer ----
+  // Gentle stop: ramp the ELEMENT volume (not the volume state, which would
+  // re-create the audio element) down to 0 over ~2s, pause, then restore the
+  // element to the hook's volume state so the next play is at normal volume.
+  const clearSleepIntervals = useCallback(() => {
+    if (sleepRampIntervalRef.current) {
+      clearInterval(sleepRampIntervalRef.current);
+      sleepRampIntervalRef.current = null;
+      // A ramp was cut short: bring volume back to the hook's volume state
+      if (audioRef.current) {
+        audioRef.current.volume = volumeRef.current;
+      }
+    }
+    if (sleepIntervalRef.current) {
+      clearInterval(sleepIntervalRef.current);
+      sleepIntervalRef.current = null;
+    }
+  }, []);
+
+  // Configure the sleep timer. `null` (or non-positive) cancels; a positive
+  // number (minutes, fractions allowed) starts/restarts the countdown. When
+  // the countdown reaches 0 it fires once, gently stops playback, and leaves
+  // sleepRemainingSec at 0 until a new timer is set or it is cancelled.
+  const setSleepTimer = useCallback((minutes: number | null) => {
+    // Cancel any running countdown/ramp first
+    clearSleepIntervals();
+    sleepFiredRef.current = false;
+
+    if (minutes === null || !Number.isFinite(minutes) || minutes <= 0) {
+      sleepRemainingRef.current = null;
+      setSleepMinutes(null);
+      setSleepRemainingSec(null);
+      return;
+    }
+
+    const totalSec = Math.round(minutes * 60);
+    sleepRemainingRef.current = totalSec;
+    setSleepMinutes(minutes);
+    setSleepRemainingSec(totalSec);
+
+    sleepIntervalRef.current = setInterval(() => {
+      const remaining = (sleepRemainingRef.current ?? 0) - 1;
+      sleepRemainingRef.current = Math.max(remaining, 0);
+      setSleepRemainingSec(Math.max(remaining, 0));
+
+      if (remaining > 0 || sleepFiredRef.current) return;
+
+      // Countdown reached 0 - fire exactly once and stop ticking
+      sleepFiredRef.current = true;
+      if (sleepIntervalRef.current) {
+        clearInterval(sleepIntervalRef.current);
+        sleepIntervalRef.current = null;
+      }
+
+      const audio = audioRef.current;
+      if (!audio || audio.paused) return;
+
+      const startVolume = audio.volume;
+      const steps = 20;
+      const stepMs = 2000 / steps; // ~2 seconds total
+      let step = 0;
+      sleepRampIntervalRef.current = setInterval(() => {
+        step++;
+        const current = audioRef.current;
+        if (!current || current.paused) {
+          if (sleepRampIntervalRef.current) {
+            clearInterval(sleepRampIntervalRef.current);
+            sleepRampIntervalRef.current = null;
+          }
+          if (current) current.volume = volumeRef.current;
+          return;
+        }
+        if (step >= steps) {
+          if (sleepRampIntervalRef.current) {
+            clearInterval(sleepRampIntervalRef.current);
+            sleepRampIntervalRef.current = null;
+          }
+          current.pause();
+          current.volume = volumeRef.current; // restore for the next play
+          return;
+        }
+        current.volume = Math.max(startVolume - (startVolume / steps) * step, 0);
+      }, stepMs);
+    }, 1000);
+  }, [clearSleepIntervals]);
 
   // Toggle play/pause — declared after next/previous so Play can fall through to "tune"
   const togglePlayPause = useCallback(() => {
@@ -804,6 +1202,17 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
       // Find first valid station
       (async () => {
         const validIndex = await findValidStation(0);
+        // Honor an explicit selection (deep link / map click / preset) made
+        // while validation was running — never clobber the user's choice.
+        const explicitUuid = explicitSelectionRef.current;
+        const explicitIndex = explicitUuid
+          ? stations.findIndex(s => s.stationuuid === explicitUuid)
+          : -1;
+        if (explicitIndex !== -1) {
+          console.log(`🎯 Honoring explicit selection over auto-tune: ${stations[explicitIndex].name}`);
+          setCurrentIndex(explicitIndex);
+          return;
+        }
         if (validIndex !== null) {
           setCurrentIndex(validIndex);
           // Trigger play after a short delay to ensure everything is loaded
@@ -826,6 +1235,8 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
 
   // Select and play a specific station by UUID
   const selectStation = useCallback((stationUuid: string) => {
+    // Mark as the user's explicit choice so auto-tune won't override it
+    explicitSelectionRef.current = stationUuid;
     const index = stations.findIndex(s => s.stationuuid === stationUuid);
     if (index !== -1) {
       console.log(`🎯 Selecting station: ${stations[index].name}`);
@@ -835,6 +1246,50 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
       console.warn(`Station with UUID ${stationUuid} not found`);
     }
   }, [stations]);
+
+  // Realtime frequency levels for the equalizer UI: 8 bands (log-ish grouping
+  // of the analyser's frequency bins, normalized 0..1). Returns null when the
+  // analyser is not active for the current station (HLS streams, stations that
+  // failed the CORS probe, or before a successful probe this load).
+  const getLevels = useCallback((): number[] | null => {
+    const entry = analyserRef.current;
+    if (!entry || !analyserActiveRef.current) return null;
+    const bins = new Uint8Array(entry.analyser.frequencyBinCount); // 64 bins at fftSize 128
+    entry.analyser.getByteFrequencyData(bins);
+    const bandCount = 8;
+    const levels: number[] = [];
+    for (let i = 0; i < bandCount; i++) {
+      // Exponential edge spacing: low frequencies get finer resolution
+      const start = Math.floor(bins.length * (Math.pow(bandCount, i / bandCount) - 1) / (bandCount - 1));
+      const end = Math.floor(bins.length * (Math.pow(bandCount, (i + 1) / bandCount) - 1) / (bandCount - 1));
+      const lo = Math.min(start, bins.length - 1);
+      const hi = Math.max(Math.min(end, bins.length), lo + 1);
+      let sum = 0;
+      for (let j = lo; j < hi; j++) {
+        sum += bins[j];
+      }
+      levels.push(sum / (hi - lo) / 255);
+    }
+    return levels;
+  }, []);
+
+  // Unmount cleanup: sleep timer intervals, analyser graph and the shared
+  // levels AudioContext (kept out of the audio-init effect so it survives
+  // element re-creation and only closes on unmount).
+  useEffect(() => {
+    return () => {
+      clearSleepIntervals();
+      disconnectAnalyser();
+      if (audioCtxRef.current) {
+        try {
+          void audioCtxRef.current.close();
+        } catch {
+          // Ignore errors during cleanup
+        }
+        audioCtxRef.current = null;
+      }
+    };
+  }, [clearSleepIntervals, disconnectAnalyser]);
 
   return {
     currentStation,
@@ -853,5 +1308,11 @@ export function useAudioPlayer(stations: RadioStation[], tuningEffectEnabled: bo
     selectStation,
     hasMultipleStations: stations.length > 1,
     canTune: stations.length > 0,
+    sleepMinutes,
+    sleepRemainingSec,
+    setSleepTimer,
+    signal,
+    hasRealtimeLevels,
+    getLevels,
   };
 }

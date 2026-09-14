@@ -72,6 +72,14 @@ export function FloatingInfo() {
                 <kbd>Enter</kbd>
                 <span className="text-xs text-ivory-300">Jump to a random city</span>
               </li>
+              <li className="flex items-center justify-between gap-3">
+                <kbd>1–6</kbd>
+                <span className="text-xs text-ivory-300">Recall / hold to save preset</span>
+              </li>
+              <li className="flex items-center justify-between gap-3">
+                <kbd>T</kbd>
+                <span className="text-xs text-ivory-300">Toggle world tour</span>
+              </li>
             </ul>
           </div>
 

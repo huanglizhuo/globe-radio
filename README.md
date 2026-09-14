@@ -17,6 +17,16 @@ A 3D globe radio application that lets you discover radio stations from around t
 - 🎨 **Retro Radio Interface** - Beautiful retro-style control panel
 - ⚡ **Smart Switching** - Automatically displays previous/next buttons based on station count
 
+## 🆕 What's New
+
+- 🎛️ **Preset Keys (P1–P6)** - Save favorite stations to six preset slots (hold a key to save, tap to recall, or use `1`–`6`)
+- 📡 **Tuning Dial** - An FM-style dial with station markers; drag to snap to nearby stations
+- 🌍 **World Tour** - Auto-hops to a random city every 30 seconds (`T` to toggle); touching the globe takes back control
+- 🛂 **Listening Passport** - Earn a stamp for every new country you hear, with a shareable passport card
+- 😴 **Sleep Timer** - Drift off to the world — the radio fades out after 15, 30, or 60 minutes
+- 📶 **Signal Meter** - Realtime signal strength for the tuned station
+- 🔗 **Shareable Station Pages** - Every station has a per-station page at `/station/{uuid}` you can share or open directly
+
 ## 🚀 Quick Start
 
 ### Install Dependencies
@@ -46,12 +56,16 @@ The application will start at `http://localhost:5174` (will automatically select
 2. **Previous Station** - Click the previous button or press `←` (Left Arrow)
 3. **Next Station** - Click the next button or press `→` (Right Arrow)
 4. **Volume Control** - Use the volume slider on the radio interface
+5. **Presets** - Press `1`–`6` (or click a P1–P6 key) to recall a preset; hold the key to save the current station
+6. **World Tour** - Press `T` to auto-hop around the globe every 30 seconds
 
 ### Keyboard Shortcuts
 - `Space` - Play / Pause
 - `←` - Previous Station
 - `→` - Next Station
 - `Enter` - Jump to Random Location
+- `1`–`6` - Recall preset (hold the on-panel key to save)
+- `T` - Toggle world tour
 
 > **Note:** Arrow keys are dedicated to station switching and won't navigate the map. Use mouse drag to move the map instead.
 

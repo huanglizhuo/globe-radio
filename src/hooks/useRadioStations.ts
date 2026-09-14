@@ -35,14 +35,23 @@ export function useRadioStations() {
     }
   }, []);
 
-  // Search stations by geo coordinates (for location-based playback)
-  const searchStations = useCallback(async (coordinates: Coordinates) => {
+  // Search stations by geo coordinates (for location-based playback).
+  // `ensureStation` (deep link / preset target) is prepended when the geo
+  // search doesn't naturally include it, so it is always playable.
+  const searchStations = useCallback(async (coordinates: Coordinates, ensureStation?: RadioStation) => {
     setLoading(true);
     setError(null);
 
     try {
       // Use enhanced geo search that detects country first
-      const results = await RadioBrowserAPI.searchByGeoEnhanced(coordinates, 20);
+      let results = await RadioBrowserAPI.searchByGeoEnhanced(coordinates, 20);
+
+      if (ensureStation) {
+        const already = results.some(s => s.stationuuid === ensureStation.stationuuid);
+        if (!already) {
+          results = [ensureStation, ...results];
+        }
+      }
 
       if (results.length === 0) {
         // If no stations found, show message but don't fallback to global

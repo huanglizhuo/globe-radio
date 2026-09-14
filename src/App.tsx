@@ -2,14 +2,33 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { MapLibreGlobe, type MapLibreGlobeHandle } from './components/Map/MapLibreGlobe';
 import { RetroRadioUI } from './components/Radio/RetroRadioUI';
 import { FloatingInfo } from './components/UI/FloatingInfo';
+import { PassportPanel } from './components/UI/PassportPanel';
 import { useRadioStations } from './hooks/useRadioStations';
 import { useAudioPlayer } from './hooks/useAudioPlayer';
 import { getCountryLocationWithFallback } from './utils/countryCoordinates';
-import type { Coordinates } from './types';
+import { loadPresets, savePreset, type RadioPreset } from './utils/presets';
+import { getPassport, recordStationHeard, type PassportData } from './utils/passport';
+import type { Coordinates, RadioStation } from './types';
+
+const TUNING_STATIC_KEY = 'gr-tuning-static-v1';
+const WORLD_TOUR_INTERVAL_MS = 30_000;
+const STATION_HASH_PATTERN = /^#\/station\/([0-9a-f-]{36})$/;
+
+/** Read the persisted tuning-static preference (default: on). */
+function loadTuningStaticPreference(): boolean {
+  try {
+    const raw = localStorage.getItem(TUNING_STATIC_KEY);
+    if (raw === null) return true;
+    return raw !== '0';
+  } catch {
+    // localStorage unavailable or corrupt — default to on.
+    return true;
+  }
+}
 
 function App() {
   const mapRef = useRef<MapLibreGlobeHandle>(null);
-  const [tuningEffectEnabled, setTuningEffectEnabled] = useState(false); // Default: disabled
+  const [tuningEffectEnabled, setTuningEffectEnabled] = useState(loadTuningStaticPreference);
   const [initialLocation, setInitialLocation] = useState<Coordinates | null>(null);
   const lastSearchedCoordsRef = useRef<Coordinates | null>(null);
   const { allStations, playableStations, loading: stationsLoading, loadAllStations, searchStations } = useRadioStations();
@@ -20,6 +39,12 @@ function App() {
     error: playerError,
     volume,
     validatingStream,
+    signal,
+    hasRealtimeLevels,
+    getLevels,
+    sleepMinutes,
+    sleepRemainingSec,
+    setSleepTimer,
     setVolume,
     togglePlayPause,
     next,
@@ -28,6 +53,136 @@ function App() {
     hasMultipleStations,
     canTune,
   } = useAudioPlayer(playableStations, tuningEffectEnabled);
+
+  /* ---- Preset slots (P1–P6, persisted in localStorage) ---- */
+  const [presets, setPresets] = useState<RadioPreset[]>(() => loadPresets());
+  const [presetsBump, setPresetsBump] = useState(0);
+
+  // Re-read presets from storage after each save (bump = 0 is the initial load)
+  useEffect(() => {
+    if (presetsBump === 0) return;
+    setPresets(loadPresets());
+  }, [presetsBump]);
+
+  const handlePresetSave = useCallback((slot: number) => {
+    if (!currentStation) return;
+    savePreset(slot, currentStation);
+    setPresetsBump((bump) => bump + 1);
+  }, [currentStation]);
+
+  const handlePresetActivate = useCallback((slot: number) => {
+    const preset = presets.find((p) => p.slot === slot);
+    if (!preset) return; // Empty slot — nothing to do
+
+    if (playableStations.some((station) => station.stationuuid === preset.stationuuid)) {
+      selectStation(preset.stationuuid);
+      return;
+    }
+
+    if (preset.lat != null && preset.lon != null) {
+      const coordinates: Coordinates = { lat: preset.lat, lon: preset.lon };
+      lastSearchedCoordsRef.current = coordinates;
+      void searchStations(coordinates);
+      mapRef.current?.flyToLocation(preset.lat, preset.lon);
+      window.setTimeout(() => {
+        selectStation(preset.stationuuid);
+      }, 250);
+    }
+  }, [presets, playableStations, selectStation, searchStations]);
+
+  /* ---- World tour (auto-hop to a random city every 30s) ---- */
+  const [worldTourActive, setWorldTourActive] = useState(false);
+
+  const handleToggleWorldTour = useCallback(() => {
+    setWorldTourActive((active) => !active);
+  }, []);
+
+  // Each hop goes through the existing location-search → auto-play flow
+  useEffect(() => {
+    if (!worldTourActive) return;
+    mapRef.current?.jumpToRandomLocation();
+    const intervalId = window.setInterval(() => {
+      mapRef.current?.jumpToRandomLocation();
+    }, WORLD_TOUR_INTERVAL_MS);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [worldTourActive]);
+
+  // A user grabbing the globe takes over from the tour
+  const handleUserInteractionStart = useCallback(() => {
+    setWorldTourActive((active) => (active ? false : active));
+  }, []);
+
+  /* ---- Listening passport ---- */
+  const [passportOpen, setPassportOpen] = useState(false);
+  const [passportData, setPassportData] = useState<PassportData>(() => getPassport());
+  const [passportCountryCount, setPassportCountryCount] = useState(
+    () => getPassport().stamps.length,
+  );
+
+  // Stamp the passport whenever a station with a known country is tuned in
+  useEffect(() => {
+    if (!currentStation?.countrycode) return;
+    recordStationHeard(currentStation);
+    setPassportCountryCount(getPassport().stamps.length);
+  }, [currentStation]);
+
+  const handleOpenPassport = useCallback(() => {
+    setPassportData(getPassport());
+    setPassportOpen(true);
+  }, []);
+
+  /* ---- Deep link: #/station/{uuid} ---- */
+  const handledHashRef = useRef<string | null>(null);
+
+  // Resolve a shared station link: look the uuid up, clear the hash (so nothing
+  // can re-trigger it), then fly there and tune in. Fire-and-forget.
+  const handleStationDeepLink = useCallback(async () => {
+    const hash = window.location.hash;
+    const match = STATION_HASH_PATTERN.exec(hash);
+    if (!match || handledHashRef.current === hash) return;
+    handledHashRef.current = hash;
+    const uuid = match[1];
+
+    try {
+      const response = await fetch(`/api/radio/json/stations/byuuid?uuids=${uuid}`);
+      if (!response.ok) return;
+      const results = (await response.json()) as RadioStation[];
+      const station = Array.isArray(results) ? results[0] : undefined;
+      if (!station) return;
+
+      // Clear the hash FIRST (before any further actions) to prevent loops
+      window.history.replaceState(null, '', window.location.pathname);
+
+      if (station.geo_lat != null && station.geo_long != null) {
+        const coordinates: Coordinates = { lat: station.geo_lat, lon: station.geo_long };
+        lastSearchedCoordsRef.current = coordinates;
+        // ensureStation: the shared station must be in the playable list even
+        // if the geo search doesn't naturally return it
+        await searchStations(coordinates, station);
+        mapRef.current?.flyToLocation(station.geo_lat, station.geo_long);
+        window.setTimeout(() => {
+          selectStation(uuid);
+        }, 300);
+      } else if (playableStations.some((s) => s.stationuuid === uuid)) {
+        selectStation(uuid);
+      }
+    } catch {
+      // Deep-link lookup failed — leave the globe as-is.
+    }
+  }, [playableStations, searchStations, selectStation]);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      void handleStationDeepLink();
+    };
+    void handleStationDeepLink();
+    window.addEventListener('hashchange', onHashChange);
+    return () => {
+      window.removeEventListener('hashchange', onHashChange);
+    };
+  }, [handleStationDeepLink]);
 
   // Handle station marker click
   const handleStationClick = useCallback(async (stationUuid: string, lat: number, lon: number) => {
@@ -94,10 +249,15 @@ function App() {
     detectCountry();
   }, []);
 
-  // Handle tuning effect toggle
+  // Handle tuning effect toggle (persisted)
   const handleToggleTuningEffect = useCallback(() => {
     setTuningEffectEnabled(prev => {
       const newValue = !prev;
+      try {
+        localStorage.setItem(TUNING_STATIC_KEY, newValue ? '1' : '0');
+      } catch {
+        // Storage unavailable — the preference just won't persist.
+      }
       console.log(`🎵 Tuning effect ${newValue ? 'enabled' : 'disabled'}`);
       return newValue;
     });
@@ -111,6 +271,13 @@ function App() {
         event.target instanceof Element &&
         ['INPUT', 'TEXTAREA'].includes(event.target.tagName)
       ) {
+        return;
+      }
+
+      // Digit1..Digit6 / Numpad1..Numpad6 → activate preset N
+      const presetKeyMatch = /^(?:Digit|Numpad)([1-6])$/.exec(event.code);
+      if (presetKeyMatch) {
+        handlePresetActivate(Number(presetKeyMatch[1]));
         return;
       }
 
@@ -139,6 +306,9 @@ function App() {
             console.warn('⚠️ Enter pressed but map ref is null');
           }
           break;
+        case 'KeyT':
+          handleToggleWorldTour();
+          break;
       }
     };
 
@@ -147,7 +317,7 @@ function App() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [togglePlayPause, next, previous]);
+  }, [togglePlayPause, next, previous, handlePresetActivate, handleToggleWorldTour]);
 
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden bg-paper">
@@ -159,6 +329,7 @@ function App() {
         stations={allStations}
         currentStationUuid={currentStation?.stationuuid ?? null}
         onStationClick={handleStationClick}
+        onUserInteractionStart={handleUserInteractionStart}
       />
 
       {/* Atmospheric vignette for chrome legibility */}
@@ -182,6 +353,19 @@ function App() {
         onVolumeChange={setVolume}
         onToggleTuningEffect={handleToggleTuningEffect}
         onRetry={handleRetrySearch}
+        signal={signal}
+        hasRealtimeLevels={hasRealtimeLevels}
+        getLevels={getLevels}
+        sleepMinutes={sleepMinutes}
+        sleepRemainingSec={sleepRemainingSec}
+        onSetSleepTimer={setSleepTimer}
+        presets={presets}
+        onPresetActivate={handlePresetActivate}
+        onPresetSave={handlePresetSave}
+        worldTourActive={worldTourActive}
+        onToggleWorldTour={handleToggleWorldTour}
+        onOpenPassport={handleOpenPassport}
+        passportCountryCount={passportCountryCount}
       />
 
       {/* Unified status chip (loading / validating) */}
@@ -201,6 +385,9 @@ function App() {
 
       {/* Help / shortcuts popover */}
       <FloatingInfo />
+
+      {/* Listening passport dialog */}
+      <PassportPanel open={passportOpen} onClose={() => setPassportOpen(false)} data={passportData} />
     </div>
   );
 }

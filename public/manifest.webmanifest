@@ -1,0 +1,30 @@
+{
+  "name": "Globe Radio",
+  "short_name": "Globe Radio",
+  "description": "Globe Radio is a free web app that turns a 3D globe into a world-band radio tuner: spin the Earth and tune into thousands of live radio stations across every continent. No account, no setup.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b0d14",
+  "theme_color": "#0b0d14",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

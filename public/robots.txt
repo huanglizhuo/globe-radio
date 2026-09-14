@@ -22,4 +22,6 @@ Allow: /
 User-agent: Google-Extended
 Allow: /
 
+Sitemap: https://gradio.clothpath.com/sitemap.xml
+
 # LLM-friendly site summary: https://gradio.clothpath.com/llms.txt

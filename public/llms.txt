@@ -9,6 +9,7 @@ Key facts:
 - [Coverage]: Up to 10,000 stations with known coordinates pinned to the globe at once
 - [Maps]: MapLibre GL globe projection with MapTiler satellite imagery
 - [Shortcuts]: Space = play/pause, ← → = previous/next station, Enter = jump to a random city
+- [Station pages]: Every indexed radio station has a shareable page at /station/<uuid> with a live stream and country recommendations
 
 How it works:
 1. Spin the globe to any region
