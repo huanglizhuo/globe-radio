@@ -34,3 +34,6 @@ dist-ssr
 .github/skills/impeccable/
 .github/agents/impeccable*
 .github/hooks/
+
+# Wrangler local dev state
+.wrangler/
