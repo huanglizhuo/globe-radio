@@ -2,6 +2,15 @@
 <html lang="en">
 
 <head>
+  <!-- TEMP DIAGNOSTIC PROBE — remove after debugging (commit to be reverted) -->
+  <script>
+    window.__p = { errs: [], fetches: [], logs: [] };
+    window.addEventListener('error', function (e) { window.__p.errs.push('ERR: ' + (e.message || e.type) + ' ' + (e.filename || '') + ':' + e.lineno); });
+    window.addEventListener('unhandledrejection', function (e) { window.__p.errs.push('REJ: ' + String(e.reason && e.reason.message || e.reason).slice(0, 200)); });
+    ['error', 'warn'].forEach(function (m) { var o = console[m].bind(console); console[m] = function () { var a = [].slice.call(arguments); window.__p.errs.push(m.toUpperCase() + ': ' + a.map(function (x) { return String(x && (x.message || (x.stack && x.stack.split('\n')[0]) || x)).slice(0, 160); }).join(' | ')); o.apply(null, a); }; });
+    var ol = console.log.bind(console); console.log = function () { var a = [].slice.call(arguments); if (window.__p.logs.length < 400) window.__p.logs.push(a.map(function (x) { return String(x && x.message || x).slice(0, 110); }).join(' ').slice(0, 170)); ol.apply(null, a); };
+    var of = window.fetch.bind(window); window.fetch = function (i, init) { var u = typeof i === 'string' ? i : (i && i.url) || ''; if (u.indexOf('gradio.clothpath.com') === -1) { var e = { url: u.slice(0, 95) }; window.__p.fetches.push(e); return of(i, init).then(function (r) { e.s = r.status; return r; }, function (er) { e.err = String(er).slice(0, 50); throw er; }); } return of(i, init); };
+  </script>
   <meta charset="UTF-8" />
   <link rel="icon" type="image/png" href="/favicon.png" />
   <link rel="manifest" href="/manifest.webmanifest" />
