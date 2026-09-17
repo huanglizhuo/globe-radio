@@ -5,10 +5,13 @@ import { MOCK_STATIONS } from './mockStations';
 // Cache for reverse geocoding results to avoid repeated API calls
 const geocodeCache = new Map<string, string | null>();
 
-// List of Radio Browser API servers to try
+// List of Radio Browser API servers to try.
+// `all.api` is the official DNS-round-robin entry point and is tried first;
+// individual mirrors follow as fallbacks when it is unreachable.
 const API_SERVERS = [
-  'https://fi1.api.radio-browser.info/json',
+  'https://all.api.radio-browser.info/json',
   'https://de1.api.radio-browser.info/json',
+  'https://fi1.api.radio-browser.info/json',
   'https://nl1.api.radio-browser.info/json',
   'https://at1.api.radio-browser.info/json',
   'https://fr1.api.radio-browser.info/json',
@@ -33,8 +36,9 @@ const getFetchOptions = (): RequestInit => ({
   },
 });
 
-// Helper to fetch with retry
-async function fetchWithRetry(url: string, maxRetries = 2): Promise<Response> {
+// Helper to fetch with retry. Retries cover the full server list so a single
+// down mirror never empties the map.
+async function fetchWithRetry(url: string, maxRetries = API_SERVERS.length + 1): Promise<Response> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {

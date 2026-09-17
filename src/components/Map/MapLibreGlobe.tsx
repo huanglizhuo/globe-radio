@@ -712,7 +712,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
 
     // Update station markers when stations or currentStationUuid changes
     useEffect(() => {
-      if (!map.current || !map.current.isStyleLoaded()) return;
+      if (!map.current) return;
 
       const updateStations = () => {
         if (!map.current) return;
@@ -780,8 +780,11 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         console.log(`📍 Updated ${clusteredFeatures.length} clustered stations + ${playingFeatures.length} playing station on map`);
       };
 
-      // Wait for map to be loaded before updating
-      if (map.current.loaded()) {
+      // Run immediately once the style is ready. map.loaded() is wrong here:
+      // it stays false while terrain/satellite tiles stream, and the map's
+      // one-shot 'load' event has usually fired long before a slow station
+      // fetch resolves — waiting on it meant stations never rendered.
+      if (map.current.isStyleLoaded()) {
         updateStations();
       } else {
         map.current.once('load', updateStations);

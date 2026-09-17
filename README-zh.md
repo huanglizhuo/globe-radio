@@ -1,5 +1,9 @@
 # 🌍 Globe Radio
 
+[![OctoCounts](https://api.octocounts.com/badge/huanglizhuo/globe-radio)](https://octocounts.com/github/huanglizhuo/globe-radio)
+[![Code Lines](https://api.octocounts.com/badge/huanglizhuo/globe-radio?type=code)](https://octocounts.com/github/huanglizhuo/globe-radio)
+[![Top Language](https://api.octocounts.com/badge/huanglizhuo/globe-radio?type=top-language)](https://octocounts.com/github/huanglizhuo/globe-radio)
+
 一个 3D 地球收音机应用，让你通过旋转地球来发现世界各地的电台。
 
 ![Globe Radio Preview](./preview.png)
