@@ -13,7 +13,16 @@ export default defineConfig({
     assetsDir: 'assets',
     rollupOptions: {
       output: {
-        manualChunks: undefined, // Single bundle for simplicity in worker deployment
+        // Split the heavy vendors so repeat visits and SW caching can load
+        // them independently (hashed URLs are cache-forever safe)
+        manualChunks(id: string) {
+          if (id.includes('node_modules')) {
+            if (id.includes('maplibre-gl')) return 'vendor-maplibre';
+            if (id.includes('hls.js')) return 'vendor-hls';
+            if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) return 'vendor-react';
+          }
+          return undefined;
+        },
       }
     }
   },

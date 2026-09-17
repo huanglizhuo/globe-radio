@@ -446,10 +446,16 @@ export default {
       // allow headers to be altered
       const response = new Response(page.body, page);
 
+      // Hashed build assets never change — cache them forever at the edge
+      // and in the browser (audit P03)
+      if (url.pathname.startsWith('/assets/')) {
+        response.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+
       response.headers.set('X-XSS-Protection', '1; mode=block');
       response.headers.set('X-Content-Type-Options', 'nosniff');
       response.headers.set('X-Frame-Options', 'DENY');
-      response.headers.set('Referrer-Policy', 'unsafe-url');
+      response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
       response.headers.set('Feature-Policy', 'none');
 
       return response;

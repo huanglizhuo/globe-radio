@@ -335,10 +335,17 @@ ${relatedItems}
   <link rel="canonical" href="${escapeHtml(canonical)}">
   <meta property="og:title" content="${escapeHtml(title)}">
   <meta property="og:description" content="${escapeHtml(description)}">
-  <meta property="og:image" content="${SITE_ORIGIN}/og-image.png">
+  <meta property="og:image" content="${SITE_ORIGIN}/og-image.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="${escapeHtml(title)} — live on Globe Radio">
   <meta property="og:url" content="${escapeHtml(canonical)}">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Globe Radio">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${escapeHtml(title)}">
+  <meta name="twitter:description" content="${escapeHtml(description)}">
+  <meta name="twitter:image" content="${SITE_ORIGIN}/og-image.jpg">
   <meta name="theme-color" content="#1a120b">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
