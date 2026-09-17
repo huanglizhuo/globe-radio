@@ -251,6 +251,11 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         }
       });
 
+      // Surface map errors (style/tile failures stay invisible otherwise)
+      map.current.on('error', (e) => {
+        console.error('Map error:', (e as maplibregl.ErrorEvent).error?.message || e);
+      });
+
       // Track user interactions
       map.current.on('dragstart', () => {
         isUserInteractionRef.current = true;
@@ -278,22 +283,57 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         isUserInteractionRef.current = false;
       });
 
-      // Add 3D terrain and search circle
+      // Add 3D terrain and search circle.
+      // Idempotent + fault-isolated: the globe projection triggers a style
+      // reload, which can fire 'load' more than once — a duplicate addSource
+      // throws and used to abort the handler before the initial station
+      // search at the end ever ran.
       map.current.on('load', () => {
         if (!map.current) return;
 
-        map.current.addSource('terrain', {
+        // Kick off the initial station search first so it happens no matter
+        // what any later layer wiring does.
+        const center = map.current.getCenter();
+        if (onLocationChange) {
+          console.log(`🎯 Initial location: ${center.lat.toFixed(2)}°, ${center.lng.toFixed(2)}°`);
+          hasInitialLocationFiredRef.current = true;
+          lastLocationRef.current = { lat: center.lat, lng: center.lng };
+          onLocationChange(center.lat, center.lng);
+        }
+
+        const safeAddSource = (id: string, spec: maplibregl.SourceSpecification) => {
+          if (!map.current || map.current.getSource(id)) return;
+          try {
+            map.current.addSource(id, spec);
+          } catch (error) {
+            console.error(`addSource(${id}) failed:`, error);
+          }
+        };
+        const safeAddLayer = (layer: maplibregl.LayerSpecification, beforeId?: string) => {
+          if (!map.current || map.current.getLayer(layer.id)) return;
+          try {
+            map.current.addLayer(layer, beforeId);
+          } catch (error) {
+            console.error(`addLayer(${layer.id}) failed:`, error);
+          }
+        };
+
+        safeAddSource('terrain', {
           type: 'raster-dem',
           url: `https://api.maptiler.com/tiles/terrain-rgb/tiles.json?key=${MAPTILER_API_KEY}`,
         });
 
-        map.current.setTerrain({
-          source: 'terrain',
-          exaggeration: 1.5,
-        });
+        try {
+          map.current.setTerrain({
+            source: 'terrain',
+            exaggeration: 1.5,
+          });
+        } catch (error) {
+          console.error('setTerrain failed:', error);
+        }
 
         // Add search circle source
-        map.current.addSource('search-circle', {
+        safeAddSource('search-circle', {
           type: 'geojson',
           data: {
             type: 'Feature',
@@ -306,7 +346,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         });
 
         // Add circle layer (outer ring - search area)
-        map.current.addLayer({
+        safeAddLayer({
           id: 'search-area',
           type: 'circle',
           source: 'search-circle',
@@ -321,7 +361,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         });
 
         // Add center point (inner dot)
-        map.current.addLayer({
+        safeAddLayer({
           id: 'search-center',
           type: 'circle',
           source: 'search-circle',
@@ -336,7 +376,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         });
 
         // Add clustered stations source (non-playing stations only)
-        map.current.addSource('stations-clustered', {
+        safeAddSource('stations-clustered', {
           type: 'geojson',
           data: {
             type: 'FeatureCollection',
@@ -348,7 +388,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         });
 
         // Add separate source for currently playing station (never clustered)
-        map.current.addSource('stations-playing', {
+        safeAddSource('stations-playing', {
           type: 'geojson',
           data: {
             type: 'FeatureCollection',
@@ -357,7 +397,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         });
 
         // Cluster circle layer (2x size of individual stations)
-        map.current.addLayer({
+        safeAddLayer({
           id: 'clusters',
           type: 'circle',
           source: 'stations-clustered',
@@ -373,7 +413,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         });
 
         // Cluster count label layer
-        map.current.addLayer({
+        safeAddLayer({
           id: 'cluster-count',
           type: 'symbol',
           source: 'stations-clustered',
@@ -389,7 +429,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         });
 
         // Individual station markers (unclustered)
-        map.current.addLayer({
+        safeAddLayer({
           id: 'station-markers',
           type: 'circle',
           source: 'stations-clustered',
@@ -405,7 +445,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         });
 
         // Invisible larger hit area over individual stations (easier taps/hover)
-        map.current.addLayer({
+        safeAddLayer({
           id: 'station-hit',
           type: 'circle',
           source: 'stations-clustered',
@@ -417,7 +457,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         });
 
         // Currently playing station (with glowing animation)
-        map.current.addLayer({
+        safeAddLayer({
           id: 'station-playing',
           type: 'circle',
           source: 'stations-playing',
@@ -432,7 +472,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         });
 
         // Glowing halo layer for playing station
-        map.current.addLayer({
+        safeAddLayer({
           id: 'station-playing-halo',
           type: 'circle',
           source: 'stations-playing',
@@ -582,7 +622,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
         });
 
         // Add satellite imagery source and layer (after all other layers)
-        map.current.addSource('satellite', {
+        safeAddSource('satellite', {
           type: 'raster',
           url: `https://api.maptiler.com/tiles/satellite-v2/tiles.json?key=${MAPTILER_API_KEY}`,
           tileSize: 256,
@@ -599,7 +639,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
           }
         }
 
-        map.current.addLayer(
+        safeAddLayer(
           {
             id: 'satellite-layer',
             type: 'raster',
@@ -612,14 +652,8 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
           firstSymbolId // Insert before the first symbol layer
         );
 
-        // Initial location trigger
-        const center = map.current.getCenter();
-        if (onLocationChange) {
-          console.log(`🎯 Initial location: ${center.lat.toFixed(2)}°, ${center.lng.toFixed(2)}°`);
-          hasInitialLocationFiredRef.current = true;
-          lastLocationRef.current = { lat: center.lat, lng: center.lng };
-          onLocationChange(center.lat, center.lng);
-        }
+        // Initial location trigger moved to the top of this handler; nothing
+        // further to do here.
       });
 
       // Handle map movement (debounced)
