@@ -242,12 +242,20 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
       //   map.current.addControl(new (maplibregl as any).GlobeControl());
       // }
 
-      // Set globe projection when style loads
+      // Set globe projection when style loads. setProjection triggers a
+      // second style load pass that INTERMITTENTLY never completes (known
+      // MapLibre globe behavior) — the map's one-shot 'load' event then never
+      // fires and layer setup + the initial station search would hang
+      // forever. initializeLayers is idempotent and registered on 'load',
+      // plus a poll-based fallback that keeps retrying safely.
+      const layersInitializedRef = { current: false };
+      const interactionHandlersRef = { current: false };
       map.current.on('style.load', () => {
-        if (map.current) {
-          map.current.setProjection({
-            type: 'globe',
-          });
+        if (!map.current) return;
+        try {
+          map.current.setProjection({ type: 'globe' });
+        } catch (error) {
+          console.error('setProjection failed:', error);
         }
       });
 
@@ -284,21 +292,23 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
       });
 
       // Add 3D terrain and search circle.
-      // Idempotent + fault-isolated: the globe projection triggers a style
-      // reload, which can fire 'load' more than once — a duplicate addSource
-      // throws and used to abort the handler before the initial station
-      // search at the end ever ran.
-      map.current.on('load', () => {
-        if (!map.current) return;
+      // Idempotent + fault-isolated: registered on BOTH the map 'load' event
+      // and the style.load fallback above — whichever fires first wins, and
+      // duplicate runs are no-ops.
+      const initializeLayers = () => {
+        if (!map.current || layersInitializedRef.current) return;
 
         // Kick off the initial station search first so it happens no matter
-        // what any later layer wiring does.
-        const center = map.current.getCenter();
-        if (onLocationChange) {
-          console.log(`🎯 Initial location: ${center.lat.toFixed(2)}°, ${center.lng.toFixed(2)}°`);
-          hasInitialLocationFiredRef.current = true;
-          lastLocationRef.current = { lat: center.lat, lng: center.lng };
-          onLocationChange(center.lat, center.lng);
+        // what any later layer wiring does. Guarded separately so retries
+        // never double-fire the search.
+        if (!hasInitialLocationFiredRef.current) {
+          const center = map.current.getCenter();
+          if (onLocationChange) {
+            console.log(`🎯 Initial location: ${center.lat.toFixed(2)}°, ${center.lng.toFixed(2)}°`);
+            hasInitialLocationFiredRef.current = true;
+            lastLocationRef.current = { lat: center.lat, lng: center.lng };
+            onLocationChange(center.lat, center.lng);
+          }
         }
 
         const safeAddSource = (id: string, spec: maplibregl.SourceSpecification) => {
@@ -484,6 +494,10 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
           },
         });
 
+        // Interaction handlers register once — retries must not double-fire clicks
+        if (!interactionHandlersRef.current) {
+        interactionHandlersRef.current = true;
+
         // Add click handler for clusters (zoom in to expand)
         map.current.on('click', 'clusters', (e) => {
           if (!map.current || !e.features || e.features.length === 0) return;
@@ -620,6 +634,7 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
             map.current.getCanvas().style.cursor = '';
           }
         });
+        } // end one-time interaction handler registration
 
         // Add satellite imagery source and layer (after all other layers)
         safeAddSource('satellite', {
@@ -654,7 +669,29 @@ export const MapLibreGlobe = forwardRef<MapLibreGlobeHandle, MapLibreGlobeProps>
 
         // Initial location trigger moved to the top of this handler; nothing
         // further to do here.
-      });
+
+        // Latch only when the layer stack actually landed; retries before
+        // that are harmless (safeAdd* no-op, search guarded above).
+        if (map.current.getSource('stations-clustered')) {
+          layersInitializedRef.current = true;
+        }
+      };
+
+      map.current.on('load', initializeLayers);
+
+      // Fallback: the globe projection's second style pass intermittently
+      // never completes, so 'load' may never fire. Retry init every 800ms
+      // (idempotent) until the station layers land or 30s elapse.
+      let fallbackAttempts = 0;
+      const fallbackTimer = window.setInterval(() => {
+        if (!map.current || layersInitializedRef.current || fallbackAttempts++ > 37) {
+          window.clearInterval(fallbackTimer);
+          return;
+        }
+        if (map.current.getStyle()) {
+          initializeLayers();
+        }
+      }, 800);
 
       // Handle map movement (debounced)
       map.current.on('move', () => {
